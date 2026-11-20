@@ -28,7 +28,9 @@ setup() {
   mkdir -p "$STUBS" "$RECV_HOME"
   : >"$CALLS"
 
-  stub uname 'echo "${STUB_UNAME:-Darwin}"'
+  load lib/platform
+  stub_uname "$STUBS"
+  export STUB_UNAME=Darwin
   stub open 'log open "$@"
     [ -z "${OPEN_ERR:-}" ] || { echo "$OPEN_ERR" >&2; exit 1; }'
   stub zsh 'log zsh "$@"

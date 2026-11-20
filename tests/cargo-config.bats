@@ -31,7 +31,8 @@ BREWFILE="$BATS_TEST_DIRNAME/../stow/brew/Brewfile"
 }
 
 @test "the deployed config resolves where cargo reads it" {
-  [ "$(uname -s)" = "Linux" ] || skip "cargo package is Linux-only"
+  load lib/platform
+  require_linux "the cargo package deploys on Linux"
   [ -L "$HOME/.profile" ] || skip "dotfiles not deployed (~/.profile not a symlink)"
   [ -e "$HOME/.cargo/config.toml" ] || skip "cargo package not deployed on this host"
   run grep -qE '^git-fetch-with-cli = true$' "$HOME/.cargo/config.toml"

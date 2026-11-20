@@ -15,8 +15,9 @@ setup() {
   DEST="$BATS_TEST_TMPDIR/sysctl.d"
   STUBS="$BATS_TEST_TMPDIR/stubs"
   mkdir -p "$DEST" "$STUBS"
-  printf '#!/usr/bin/env bash\necho "${STUB_UNAME:-Linux}"\n' >"$STUBS/uname"
-  chmod +x "$STUBS/uname"
+  load lib/platform
+  stub_uname "$STUBS"
+  export STUB_UNAME=Linux
   PATH="$STUBS:$PATH"
 }
 

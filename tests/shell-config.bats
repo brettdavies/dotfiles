@@ -8,6 +8,8 @@
 # rather than a newer bats: 1.14 still warns BW02 without it.
 bats_require_minimum_version 1.5.0
 
+load lib/platform
+
 STOW_DIR="$BATS_TEST_DIRNAME/../stow"
 CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
 
@@ -94,7 +96,7 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
 # falls back to system Ruby 2.6 / Bundler 1.x. dot-zprofile must re-assert the
 # keg-only Ruby bin + gem binstubs, not just $HOMEBREW_PREFIX/bin.
 @test "dot-zprofile re-asserts keg-only Homebrew Ruby ahead of system Ruby" {
-  [ "$(uname -s)" = "Darwin" ] || skip "macOS-only — path_helper is Apple-specific"
+  require_macos "path_helper is Apple's"
   bp="${HOMEBREW_PREFIX:-$(brew --prefix 2>/dev/null)}"
   [ -n "$bp" ] || skip "no Homebrew prefix"
   [ -d "$bp/opt/ruby/bin" ] || skip "keg-only Homebrew Ruby not installed"
@@ -120,10 +122,9 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
   command -v zsh >/dev/null 2>&1 || skip "zsh not installed"
   local stub="$BATS_TEST_TMPDIR/stub" brew="$BATS_TEST_TMPDIR/brew"
   mkdir -p "$stub" "$brew/bin" "$brew/sbin"
-  printf '#!/bin/sh\necho Darwin\n' >"$stub/uname"
-  chmod +x "$stub/uname"
+  stub_uname "$stub"
   # The order path_helper leaves: system dirs first, then the inherited PATH.
-  run zsh -fc "
+  STUB_UNAME=Darwin run zsh -fc "
     export HOMEBREW_PREFIX='$brew'
     path=('$stub' /usr/local/bin /usr/bin /bin /usr/sbin /sbin \"\$HOME/.local/bin\" '$brew/bin' '$brew/sbin')
     source '$STOW_DIR/zsh/dot-zprofile'
@@ -143,7 +144,7 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
 # the front (remove-then-prepend); an add-if-absent guard skips when the dir is
 # already present-but-demoted, leaving system Ruby 2.6 / Bundler 1.x winning.
 @test "local-paths.sh promotes keg-only Homebrew Ruby ahead of system Ruby in bash" {
-  [ "$(uname -s)" = "Darwin" ] || skip "macOS-only — path_helper is Apple-specific"
+  require_macos "path_helper is Apple's"
   bp="${HOMEBREW_PREFIX:-$(brew --prefix 2>/dev/null)}"
   [ -n "$bp" ] || skip "no Homebrew prefix"
   [ -d "$bp/opt/ruby/bin" ] || skip "keg-only Homebrew Ruby not installed"
@@ -282,7 +283,7 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
 # block ran, so the two display assertions cannot pass on a skipped branch.
 
 @test "sourcing profile on a headless Obsidian host exports neither DISPLAY nor XAUTHORITY" {
-  [ "$(uname -s)" = "Linux" ] || skip "the headless Obsidian block is Linux-only"
+  require_linux "the headless Obsidian block"
   local home="$BATS_TEST_TMPDIR/home"
   mkdir -p "$home/.config/obsidian"
   : >"$home/.config/obsidian/Xauthority"

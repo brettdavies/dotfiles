@@ -51,7 +51,8 @@ setup() {
   export OPENSEO_ENV_DIR="$BATS_TEST_TMPDIR/cfg/openseo" OP_SKILL="$STUBS/op"
   export STUB_HEALTH=ok STUB_FIRST=false STUB_ADDR=ok STUB_CAP=1 STUB_BOUND=0
   export OPENSEO_ADVERTISE_WAIT=1 OPENSEO_HEALTH_WAIT=1 OPENSEO_INIT_TIMEOUT=2 TICKS="$BATS_TEST_TMPDIR/ticks"
-  _stub uname 'if [ -n "${STUB_OS:-}" ]; then echo "$STUB_OS"; else command -p uname "$@"; fi'
+  load lib/platform
+  stub_uname "$STUBS"
   _stub op/read_field.sh 'echo "read_field $*" >>"$CALLS"
   [ "${STUB_OP_FAIL:-}" != 1 ] || exit 1
   case "$1:$2" in
@@ -268,7 +269,7 @@ _script_image() { sed -n 's/^OS_IMAGE=//p' "$SCRIPT"; }
 }
 
 @test "render on a Darwin host exits 1 before reading any secret" {
-  STUB_OS=Darwin _run render
+  STUB_UNAME=Darwin _run render
   [ "$status" -eq 1 ]
   [[ "$output" == *"ERROR: unsupported-host:"* ]]
   _never read_field
@@ -865,7 +866,7 @@ _script_image() { sed -n 's/^OS_IMAGE=//p' "$SCRIPT"; }
     seen+=" ${BASH_REMATCH[1]}"
   }
   STUB_OP_FAIL=1 _run render; _check
-  STUB_OS=Darwin _run render; _check
+  STUB_UNAME=Darwin _run render; _check
   _run frobnicate; _check
   _run serve; _check
   _prep

@@ -399,7 +399,7 @@ EOF
 }
 
 @test "a platform with no build is refused before anything downloads" {
-  BS_ARCH=aarch64 deploy
+  STUB_UNAME_M=aarch64 deploy
   [ "$status" -eq 1 ]
   [[ "$stderr" == *"reason: unsupported-platform; value: Linux aarch64"* ]]
   [ ! -s "$BS_CURL_LOG" ]

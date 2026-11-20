@@ -142,7 +142,8 @@ _skip_unless_deployed() {
 # so a break anywhere in it leaves the mount out of reach of a script.
 @test "a bare zsh -c defines taildrive-mount" {
   _skip_unless_deployed
-  [ "$(uname -s)" = "Darwin" ] || skip "taildrive helpers are macOS-only"
+  load lib/platform
+  require_macos "the taildrive helpers"
   run _gui_shell zsh -c 'typeset -f taildrive-mount >/dev/null && echo DEFINED'
   [ "$status" -eq 0 ]
   [[ "$output" == *"DEFINED"* ]]
