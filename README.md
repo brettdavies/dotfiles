@@ -155,6 +155,7 @@ knowing where the underlying implementation lives.
 | `gstack-config-apply`   | Converge `~/.gstack/config.yaml`, which gstack rewrites and so cannot be a stow package        |
 | `mac-open`              | Open a file from yazi on a Linux host on the Mac the session is driven from                    |
 | `mac-open-here`         | The Mac half of `mac-open`, run over SSH: open a host file in VS Code or the default app       |
+| `msg-prime`             | Message a repo's prime on the Linux server from a Mac signed in to another claude.ai account   |
 | `op-ssh-sign-wrapper`   | Cross-platform commit signing: 1Password agent on macOS, `ssh-keygen -Y sign` headless         |
 | `qmd-gpu-verify`        | Prove the `qmd-serve` daemon runs its model work on the GPU rather than the CPU                |
 | `qmd-ollama-unload-all` | Evict resident Ollama models, but only when VRAM is too low for `qmd embed` to load safely     |
@@ -165,6 +166,11 @@ knowing where the underlying implementation lives.
 | `unslop-gate`           | Git-hook prose gate over `unslop`, scoring only the markdown in the change being pushed        |
 | `uuidv7`                | Print a time-ordered UUIDv7, used for collision-proof `/tmp` artifact names                    |
 | `xurl`                  | Real `xurl` on `PATH` that execs xurl-rs's `xr`, for callers that load no interactive alias    |
+
+`SendMessage` reaches only sessions signed in to the same claude.ai account, and `msg-prime` covers the case where the
+Mac and the Linux server use different ones. Whether a session on the Mac reaches the server's primes with
+`SendMessage` directly is untested: try that first, and use `msg-prime` when it fails. `msg-prime` reaches the server
+through `AGENT_SLOT_REX_SERVER`, the same alias `agent-slot-rex` uses, set in `scripts/agent-slot-rex/lib/settings.sh`.
 
 ### Yazi Hand-off to the Mac
 
