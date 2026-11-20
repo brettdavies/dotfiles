@@ -1,0 +1,5 @@
+#!/bin/sh
+# git's gpg.ssh.program in every bats run scripts/run-tests starts, so a test
+# that signs fails here instead of reaching the real key through 1Password.
+echo "run-tests: a test tried to sign with the configured SSH key; set commit.gpgsign and tag.gpgsign to false in its repository, or pass -c gpg.ssh.program=<stub> to sign with a stub" >&2
+exit 1
