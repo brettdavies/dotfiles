@@ -46,3 +46,8 @@ desc = "Scroll preview down"
 on = "<C-y>"
 run = "seek -5"
 desc = "Scroll preview up"
+
+[[mgr.prepend_keymap]]
+on = [ "c", "y" ]
+run = "plugin copy-file-contents"
+desc = "Copy contents of file"
