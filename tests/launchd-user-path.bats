@@ -30,7 +30,9 @@ setup() {
   : >"$LAUNCHD_USER_PLIST"
   DECLARED=$(cat "$DECLARED_FILE")
 
-  stub uname 'echo "${STUB_UNAME:-Darwin}"'
+  load lib/platform
+  stub_uname "$STUBS"
+  export STUB_UNAME=Darwin
   stub plutil 'log plutil "$@"
     [ -s "$PLUTIL_STATE" ] || { echo "Could not extract value" >&2; exit 1; }
     cat "$PLUTIL_STATE"'

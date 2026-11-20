@@ -34,7 +34,7 @@ setup() {
   mkdir -p "$STUBS"
   export SYSTEMCTL_LOG="$BATS_TEST_TMPDIR/systemctl.log"
   export CRON_FILE="$BATS_TEST_TMPDIR/crontab"
-  export STUB_OS=Linux STUB_HOST=bigdaddy
+  export STUB_UNAME=Linux STUB_HOST=bigdaddy
   export OP_SKILL="$STUBS/op-skill" OP_LOG="$BATS_TEST_TMPDIR/op.log"
   export STARS_ENV="$BATS_TEST_TMPDIR/home/.config/github-stars/env"
   mkdir -p "$OP_SKILL"
@@ -45,10 +45,8 @@ printf '%s\n' "$*" >>"$OP_LOG"
 printf 'stub-token'
 EOF
   chmod +x "$OP_SKILL/read_field.sh"
-  cat >"$STUBS/uname" <<'EOF'
-#!/bin/sh
-printf '%s\n' "$STUB_OS"
-EOF
+  load lib/platform
+  stub_uname "$STUBS"
   cat >"$STUBS/hostname" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$STUB_HOST"
@@ -262,7 +260,7 @@ EOF
 # --- enable script ------------------------------------------------------------
 
 @test "enable script does nothing off Linux" {
-  STUB_OS=Darwin _enable
+  STUB_UNAME=Darwin _enable
   [ "$status" -eq 0 ]
   [[ "$output" == *"Linux-only"* ]]
   [ ! -e "$SYSTEMCTL_LOG" ]

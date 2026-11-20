@@ -9,7 +9,8 @@ REPO_ROOT="$BATS_TEST_DIRNAME/.."
 STARS="$REPO_ROOT/stow/local/dot-local/bin/github-stars"
 
 setup() {
-  [ "$(uname -s)" = "Linux" ] || skip "github-stars relies on GNU du, numfmt and date"
+  load lib/platform
+  require_linux "github-stars relies on GNU du, numfmt and date"
   STUBS="$BATS_TEST_TMPDIR/stubs"
   export STARS_DIR="$BATS_TEST_TMPDIR/stars"
   export STARRED_LIST="$BATS_TEST_TMPDIR/starred"

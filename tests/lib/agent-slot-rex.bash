@@ -1,8 +1,8 @@
 # shellcheck shell=bash
 # Fixtures for the agent-slot-rex suites. rex, agent-slot, tmux, systemctl, ssh, ps, rexurrect, and the helper's own
 # path (the command every pane and exec runs) are stubs that append their argv to $CALLS, reached through REX_BIN_DIR
-# and the AGENT_SLOT_REX_* overrides. uname is a stub on PATH that reports Linux, or $UNAME_STUB when set, so the suite
-# runs the server's code paths on a Mac too.
+# and the AGENT_SLOT_REX_* overrides. uname is stub_uname's stub, reporting Linux unless a suite sets STUB_UNAME,
+# so the suite runs the server's code paths on a Mac too.
 #
 # rex answers from files under $STUBS/rexdata: sessions.json for `ls`, session-<id>.json for `session inspect`,
 # process-<block>.json for `block call process`, and size-<block>.json for `block call size`, a terminal no client has
@@ -64,9 +64,10 @@ agent_slot_rex_setup() {
   export AGENT_SLOT_REX_SHOWN_WAIT=0 AGENT_SLOT_REX_SHOWN_HOLD=2
   printf '# repo\tprime session\n' >"$STUBS/primes"
   export REX_STUB_PID=4242 REX_STUB_INSTANCE=11111111-2222-3333-4444-555555555555
-  unset REX_SESSION REX_BLOCK UNAME_STUB
-  printf '#!/bin/sh\necho "${UNAME_STUB:-Linux}"\n' >"$STUBS/os/uname"
-  chmod +x "$STUBS/os/uname"
+  unset REX_SESSION REX_BLOCK
+  load lib/platform
+  stub_uname "$STUBS/os"
+  export STUB_UNAME=Linux
   export PATH="$STUBS/os:$PATH"
 
   stub rex '

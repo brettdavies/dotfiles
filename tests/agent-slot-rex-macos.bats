@@ -11,7 +11,7 @@ load lib/agent-slot-rex
 
 setup() {
   agent_slot_rex_setup
-  export UNAME_STUB=Darwin
+  export STUB_UNAME=Darwin
 }
 
 # forwarded VERB-AND-ARGS: the ssh stub ran the server's helper with exactly these arguments, each word single-quoted,

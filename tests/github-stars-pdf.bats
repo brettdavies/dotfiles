@@ -9,7 +9,8 @@ REPO_ROOT="$BATS_TEST_DIRNAME/.."
 CMD="$REPO_ROOT/stow/local/dot-local/bin/github-stars-pdf"
 
 setup() {
-  [ "$(uname -s)" = "Linux" ] || skip "github-stars-pdf runs on the Linux server"
+  load lib/platform
+  require_linux "github-stars-pdf runs on the Linux server"
   export GIT_CONFIG_GLOBAL="$BATS_TEST_TMPDIR/gitconfig" GIT_CONFIG_NOSYSTEM=1
   printf '[user]\n\tname = t\n\temail = t@example.com\n[commit]\n\tgpgsign = false\n' >"$GIT_CONFIG_GLOBAL"
   export STARS_DIR="$BATS_TEST_TMPDIR/stars"

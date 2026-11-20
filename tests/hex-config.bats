@@ -19,8 +19,9 @@ LINT_SHELL="$REPO_ROOT/scripts/lint-shell"
 setup() {
   STUBS="$BATS_TEST_TMPDIR/stubs"
   mkdir -p "$STUBS"
-  printf '#!/usr/bin/env bash\necho "${STUB_UNAME:-Darwin}"\n' >"$STUBS/uname"
-  chmod +x "$STUBS/uname"
+  load lib/platform
+  stub_uname "$STUBS"
+  export STUB_UNAME=Darwin
   PATH="$STUBS:$PATH"
   export HEX_CONFIG_DIR="$BATS_TEST_TMPDIR/hex"
   export HEX_APP="$BATS_TEST_TMPDIR/Hex.app"
