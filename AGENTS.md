@@ -528,6 +528,12 @@ running under a new parent. Both guards kill that `sleep` without failing anythi
 `sleep <limit>` with `BATS_TEST_TIMEOUT=<limit>` and the `BATS_killer_pid` job spec `run-tests` hands bats, which every
 process a test starts carries as the watchdog's pid instead (`is_detached_watchdog`).
 
+Every bats run also gets git's `gpg.ssh.program` pointed at `tests/lib/signing-guard` through `GIT_CONFIG_COUNT`, which
+outranks every config file and follows any entries the caller's own `GIT_CONFIG_COUNT` already holds. A test whose
+repository signs a commit or tag fails at once with `run-tests: a test tried to sign …`, instead of signing with the
+real key (through 1Password on the Mac, `ssh-keygen -Y sign` on a server). A test repository turns off `commit.gpgsign`
+and `tag.gpgsign`; a test that needs a signature passes `-c gpg.ssh.program=<stub>`, which outranks the guard.
+
 ### Test cost
 
 `scripts/run-tests` checks what each test costs by two rules that `scripts/test-cost-guard.sh` holds:
