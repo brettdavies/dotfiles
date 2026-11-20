@@ -100,8 +100,73 @@ setup() { command -v jaq >/dev/null 2>&1 || skip "jaq not available"; }
   assert_rebuilt 'timeout -k 5 30 rm x && nohup rm y' 'timeout -k 5 30 trash x && nohup trash y'
 }
 
+@test "an rm in a trap's command is denied" {
+  assert_rebuilt "tmp=\$(mktemp -d); trap 'rm -rf \"\$tmp\"' EXIT" "tmp=\$(mktemp -d); trap 'trash \"\$tmp\"' EXIT"
+}
+
+@test "an rm that fd -x runs is denied" {
+  assert_rebuilt 'fd -e pyc -x rm' 'fd -e pyc -x trash'
+}
+
+@test "an rm after eval -- is denied" {
+  assert_rebuilt "eval -- 'rm x'" "eval -- 'trash x'"
+}
+
+@test "an rm after nohup -- is denied" {
+  assert_rebuilt 'nohup -- rm x' 'nohup -- trash x'
+}
+
+@test "a heredoc delimiter quoted with a backslash still ends its body" {
+  assert_rebuilt $'cat <<\\EOF >/dev/null\nhello\nEOF\nrm -rf /tmp/x' $'cat <<\\EOF >/dev/null\nhello\nEOF\ntrash /tmp/x'
+}
+
+@test "a \$'...' string does not hide the rm after it" {
+  assert_rebuilt "echo \$'don\\'t'; rm -f x" "echo \$'don\\'t'; trash x"
+}
+
+@test "an rm after a += assignment prefix is denied" {
+  assert_rebuilt 'X+=1 rm x' 'X+=1 trash x'
+}
+
+@test "an rm in the script dash -c runs is denied" {
+  assert_rebuilt "dash -c 'rm x'" "dash -c 'trash x'"
+}
+
+@test "gfind -delete is denied like find -delete" {
+  assert_rebuilt "gfind . -name '*.pyc' -delete" "gfind . -name '*.pyc' -exec trash {} + -prune"
+}
+
+@test "an rm after a newline or a tab is denied, which the JSON writes as \n and \t" {
+  assert_rebuilt $'cd d\nrm x' $'cd d\ntrash x'
+  assert_rebuilt $'find .\t-delete' $'find .\t-exec trash {} + -prune'
+}
+
+@test "an unquoted \$( ) leaves the rest of its command one command" {
+  assert_rebuilt 'find $(pwd) -name x -delete' 'find $(pwd) -name x -exec trash {} + -prune'
+  assert_rebuilt "ssh \$(cat h) 'rm -f x'" "ssh \$(cat h) 'trash x'"
+}
+
+@test "a ) quoted inside a \$( ) body does not end it" {
+  assert_rebuilt "echo \"\$(echo ')'; rm -rf x)\"" "echo \"\$(echo ')'; trash x)\""
+  assert_rebuilt "x=\$(printf ')'; rm y)" "x=\$(printf ')'; trash y)"
+}
+
+@test "a << inside (( )) is not a heredoc, so the lines after it are read" {
+  assert_rebuilt $'for i in 1 2; do ((m = 1 << i)); done\nrm -f /tmp/x' $'for i in 1 2; do ((m = 1 << i)); done\ntrash /tmp/x'
+}
+
+@test "a script written as \$'...' or \$\"...\" is read, with its escapes" {
+  decide "bash -c \$'cd /tmp\\nrm -f x'"
+  [ "$DECISION" = DENY ]
+  [[ "$TEXT" == *"rm -f x (inside bash -c)"* ]]
+  decide "eval \$'rm x'"
+  [ "$DECISION" = DENY ]
+  decide 'bash -c $"rm x"'
+  [ "$DECISION" = DENY ]
+}
+
 @test "every deletion in one command is rebuilt" {
-  assert_rebuilt 'rm a; ssh h "rm b" && find . -delete' 'trash a; ssh h "trash b" && find . -exec trash {} +'
+  assert_rebuilt 'rm a; ssh h "rm b" && find . -delete' 'trash a; ssh h "trash b" && find . -exec trash {} + -prune'
 }
 
 # ---------------------------------------------------------------------------
@@ -117,7 +182,7 @@ setup() { command -v jaq >/dev/null 2>&1 || skip "jaq not available"; }
 }
 
 @test "find -delete is denied and rebuilt as -exec trash" {
-  assert_rebuilt "find . -name '*.pyc' -delete" "find . -name '*.pyc' -exec trash {} +"
+  assert_rebuilt "find . -name '*.pyc' -delete" "find . -name '*.pyc' -exec trash {} + -prune"
 }
 
 @test "command rm is denied" {
@@ -142,6 +207,13 @@ setup() { command -v jaq >/dev/null 2>&1 || skip "jaq not available"; }
   [[ "$TEXT" == *"next_step [ask-user]: git rm --cached and git rm --dry-run delete nothing on disk"* ]]
   [ -z "$(next_command)" ]
   decide 'git rm -rn dir'
+  [[ "$TEXT" == *"next_step [ask-user]"* ]]
+}
+
+@test "git rm with --cached or --dry-run anywhere among its words sends the call to the user" {
+  decide 'git rm x --cached'
+  [[ "$TEXT" == *"next_step [ask-user]"* ]]
+  decide 'git rm --dry-run x'
   [[ "$TEXT" == *"next_step [ask-user]"* ]]
 }
 
@@ -203,6 +275,28 @@ setup() { command -v jaq >/dev/null 2>&1 || skip "jaq not available"; }
   [ "$DECISION" = ALLOW ]
 }
 
+@test "a word that only holds rm after a \$( ) passes" {
+  decide 'cp $(mktemp) rm && ls $(pwd)/rm'
+  [ "$DECISION" = ALLOW ]
+}
+
+@test "an array literal holding rm passes" {
+  decide 'args=(rm -f x); echo "${args[@]}"'
+  [ "$DECISION" = ALLOW ]
+}
+
+@test "a case pattern named rm passes" {
+  decide 'case $op in mv|rm) echo x ;; esac'
+  [ "$DECISION" = ALLOW ]
+  decide $'case $op in\n  rm) echo removing ;;\nesac'
+  [ "$DECISION" = ALLOW ]
+}
+
+@test "an indented delimiter ends only a <<- heredoc, so a line under a << one stays body" {
+  decide $'cat <<EOF\n  EOF\nrm -f x is text here\nEOF'
+  [ "$DECISION" = ALLOW ]
+}
+
 # ---------------------------------------------------------------------------
 # The fast path and the failure paths
 # ---------------------------------------------------------------------------
@@ -215,6 +309,44 @@ setup() { command -v jaq >/dev/null 2>&1 || skip "jaq not available"; }
   run_hook_with_parser none "$HOOK" "$(bash_payload 'ls -la && git status')"
   [ "$status" -eq 0 ]
   [ -z "$output" ]
+}
+
+@test "a payload that arrives on a socket is read, as Claude Code sends it" {
+  # shellcheck disable=SC2016 # python source
+  local on_socket='import os, socket, sys
+a, b = socket.socketpair()
+a.sendall(sys.stdin.buffer.read())
+a.shutdown(socket.SHUT_WR)
+os.dup2(b.fileno(), 0)
+os.execv(sys.argv[1], sys.argv[1:2])'
+  run --separate-stderr bash -c 'printf "%s" "$1" | python3 -I -B -c "$2" "$3"' x "$(bash_payload 'rm -f x')" "$on_socket" "$HOOK"
+  echo "status=$status stdout=$output stderr=$stderr"
+  [ "$status" -eq 0 ]
+  [ -z "$stderr" ]
+  jaq -e '.hookSpecificOutput.permissionDecision == "deny"' <<<"$output" >/dev/null
+  run --separate-stderr bash -c 'printf "%s" "$1" | python3 -I -B -c "$2" "$3"' x "$(bash_payload 'ls -la')" "$on_socket" "$HOOK"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  [ -z "$stderr" ]
+}
+
+@test "a 1.5 MB command is checked well inside the hook's 5 s timeout" {
+  local start end
+  {
+    printf "git commit --file - <<'EOF'\n"
+    printf 'rm -rf the cache, then rebuild it\n%.0s' $(seq 45000)
+    printf 'EOF'
+  } >"$BATS_TEST_TMPDIR/cmd.txt"
+  [ "$(wc -c <"$BATS_TEST_TMPDIR/cmd.txt")" -gt 1500000 ]
+  # shellcheck disable=SC2016 # $c is a jaq variable
+  jaq -nc --rawfile c "$BATS_TEST_TMPDIR/cmd.txt" '{tool_name: "Bash", tool_input: {command: $c}}' >"$BATS_TEST_TMPDIR/payload.json"
+  start=$(date +%s%N)
+  run --separate-stderr "$HOOK" <"$BATS_TEST_TMPDIR/payload.json"
+  end=$(date +%s%N)
+  echo "status=$status took=$(((end - start) / 1000000)) ms"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  [ $(((end - start) / 1000000)) -lt 2500 ]
 }
 
 @test "with neither jaq nor jq, a call holding rm is blocked naming the fix" {

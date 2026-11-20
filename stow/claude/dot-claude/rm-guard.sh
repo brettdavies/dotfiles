@@ -5,23 +5,38 @@
 # that line hands to ssh or to another shell is one quoted word to them.
 #
 # Denied wherever the shell would run it as a command:
-#   - rm, also written \rm or /bin/rm, or run through command, xargs, or a
-#     wrapper (sudo, env, timeout, nice, nohup, exec, time, gtime)
+#   - rm, also written \rm or /bin/rm, or run through command, xargs, fd -x, or
+#     a wrapper (sudo, env, timeout, nice, nohup, exec, time, gtime)
 #   - git rm
-#   - find with -delete, or with -exec, -execdir, -ok or -okdir running rm
-# Read as commands too: the script of bash -c, sh -c and zsh -c, the remote
-# command of ssh, the arguments of eval, and the body of a $( ) or backtick
-# substitution, quoted or not.
+#   - find or gfind with -delete, or with -exec, -execdir, -ok or -okdir
+#     running rm
+# Read as commands too: the script of bash -c, sh -c, zsh -c and dash -c, the
+# remote command of ssh, the arguments of eval, a trap's command, and the body
+# of a $( ) or backtick substitution, quoted or not.
 # Passed: trash, and text that only names rm: a quoted string, a search
-# pattern, a heredoc body, a comment, a commit or PR body. A script a shell
-# reads from a file or stdin (`bash x.sh`, `bash <<EOF`, `... | sh`) is not
-# read, nor is a name the shell builds as it runs (`$RM`, `r''m`): the guard
-# catches a habit, not a caller working around it.
+# pattern, a heredoc body, a comment, a commit or PR body.
+#
+# The guard catches a habit, not a caller working around it, so these known
+# forms pass: a script a shell reads from a file or stdin (`bash x.sh`,
+# `bash <<EOF`, `... | sh`), a name the shell builds as it runs (`$RM`,
+# `r''m`), `function f { rm x; }`, a $( ) inside ${...} or $(( )), coproc,
+# flock, env -S, noglob, busybox, ssh -o RemoteCommand, and a git option that
+# takes a value, such as --attr-source, before rm.
 #
 # The tokenizer is pr-draft-guard.sh's, carried here so this guard deploys as
-# one file. It differs in two ways: a substitution body comes out as an X token
-# to scan, and a value keeps its newlines and tabs as \002 and \003, since a
-# script word needs them to split its commands.
+# one file. It differs in these ways:
+#   - a $( ) or backtick body, quoted or not, comes out as an X token to scan,
+#     and a quoted `)` inside it does not end it
+#   - a value keeps its newlines and tabs as \002 and \003, since a script word
+#     needs them to split its commands
+#   - a $'...' string is one quoted word with its \n and \t escapes read, and
+#     $"..." is a double-quoted one
+#   - (( )) is arithmetic and skipped, and an array literal stays inside its
+#     assignment word
+#   - a heredoc delimiter may be quoted in part or with a backslash, and only
+#     <<- strips the tabs before the closing delimiter
+#   - the command is read as one record, since joining it line by line takes
+#     seconds on a command of a megabyte
 #
 # A deny names the reason (permanent-delete), each deletion, and a next_step:
 # use-trash, with the command rebuilt with trash in place of each deletion when
@@ -54,7 +69,7 @@ readonly DOCS='~/.claude/CLAUDE.md § "CLI tools"'
 # ssh's short options that take a value.
 readonly SSH_VALUE=BbcDEeFIiJLlmOoPpQRSWw
 
-INPUT=$(</dev/stdin)
+INPUT=$(cat)
 
 # Fast path: a deletion needs the word rm, or find's -delete, in the payload. In
 # the JSON a newline or tab before the word is the two characters \n or \t.
@@ -68,13 +83,14 @@ JQ=$(command -v jaq || command -v jq) \
     'blocked the call: neither jaq nor jq is installed (brew install jaq)'
 
 CMD=$("$JQ" -r '.tool_input.command // ""' <<<"$INPUT")
-[[ $CMD =~ (^|[^[:alnum:]_.-])(rm|-delete)([^[:alnum:]_.-]|$) ]] || exit 0
+# The \n or \t before the word can also be an escape inside a $'...' script.
+[[ $CMD =~ (^|[^[:alnum:]_.-]|\\[nt])(rm|-delete)([^[:alnum:]_.-]|$) ]] || exit 0
 
 # One token per line: kind, start, end (0-based, exclusive), value. Kinds: W word
 # (value with quotes removed), R redirection with its target, P pipe, L list
-# operator, O group or substitution opener, C closer, X the body of a $( ) inside
-# double quotes or of a backtick substitution. A word glued to or holding a
-# substitution gets \001 in its value, since its expansion is unknown here.
+# operator, O group or process substitution opener, C closer, X the body of a
+# $( ) or backtick substitution. A word holding a substitution or an array
+# literal gets \001 in its value, since its expansion is unknown here.
 # shellcheck disable=SC2016  # awk program; $0 and friends are awk's
 TOKENIZE='
 function emit(k, st, en, v) { gsub(/\n/, "\002", v); gsub(/\t/, "\003", v); printf "%s\t%d\t%d\t%s\n", k, st - 1, en - 1, v }
@@ -87,20 +103,33 @@ function op(k, st, en, v) { flush(); if (rpend) { emit("R", rstart, ropend, "");
 function body(open,   st, j, d, ch) {
   val = val "\001"
   if (open == "`") { st = i + 1; j = index(substr(s, st), "`"); i = j ? st + j - 1 : n + 1 }
-  else { st = i + 2; d = 1; for (i = st; i <= n; i++) { ch = substr(s, i, 1); if (ch == "(") d++; if (ch == ")" && --d == 0) break } }
+  else {
+    st = i + 2; d = 1
+    for (i = st; i <= n; i++) {
+      ch = substr(s, i, 1)
+      if (ch == "\\") { i++; continue }
+      if (ch == "\047" || ch == "\"") { j = index(substr(s, i + 1), ch); if (!j) { i = n + 1; break } i += j; continue }
+      if (ch == "(") d++
+      if (ch == ")" && --d == 0) break
+    }
+  }
   emit("X", st, i, substr(s, st, i - st))
 }
-function heredoc_bodies(   k, e, line) {
+function heredoc_bodies(   k, m, p, L, line) {
+  m = split(substr(s, i + 1), L, "\n"); p = 1
   for (k = 1; k <= nhd; k++)
-    while (i < n) {
-      e = index(substr(s, i + 1), "\n"); line = e ? substr(s, i + 1, e - 1) : substr(s, i + 1)
-      i += e ? e : length(line); sub(/^[ \t]+/, "", line)
-      if (line == hd[k] || !e) break
+    for (; p <= m; p++) {
+      i += length(L[p]) + 1; line = L[p]
+      if (hs[k]) sub(/^\t+/, "", line)
+      if (line == hd[k]) { p++; break }
     }
+  if (i > n) i = n
   nhd = 0
 }
-{ s = (NR == 1 ? $0 : s "\n" $0) }
+BEGIN { RS = "\001" }
+{ s = (NR == 1 ? $0 : s "\001" $0) }
 END {
+  sub(/\n$/, "", s)
   n = length(s)
   for (i = 1; i <= n; i++) {
     c = substr(s, i, 1); nx = substr(s, i + 1, 1)
@@ -119,7 +148,7 @@ END {
     if (c == "\\") { if (nx == "\n") { i++; continue } word(); if (i < n) { i++; val = val substr(s, i, 1) } continue }
     if (c == "#" && !have) { while (i < n && substr(s, i + 1, 1) != "\n") i++; continue }
     if (c == " " || c == "\t") { flush(); continue }
-    if (c == "\n") { op("L", i, i + 1, "\n"); heredoc_bodies(); continue }
+    if (c == "\n") { op("L", i, i + 1, "\n"); if (nhd) heredoc_bodies(); continue }
     if (c == ";") { op("L", i, i + 1, ";"); continue }
     if (c == "|") {
       if (nx == "|") op("L", i, i + 2, "||"); else op("P", i, i + (nx == "&" ? 2 : 1), "|")
@@ -129,24 +158,53 @@ END {
     if (c == "&" && nx == "&") { op("L", i, i + 2, "&&"); i++; continue }
     if (c == "&" && nx == ">") { flush(); rstart = i; i++; if (substr(s, i + 1, 1) == ">") i++; rpend = 1; ropend = i + 1; continue }
     if (c == "&") { op("L", i, i + 1, "&"); continue }
+    if (c == "$" && nx == "\047") {
+      word()
+      for (i += 2; i <= n; i++) {
+        c = substr(s, i, 1)
+        if (c == "\\" && i < n) { i++; c = substr(s, i, 1); val = val (c == "n" ? "\n" : (c == "t" ? "\t" : c)); continue }
+        if (c == "\047") break
+        val = val c
+      }
+      continue
+    }
+    if (c == "$" && nx == "\"") continue
     if (c == "$" && nx == "{") { word(); j = index(substr(s, i), "}"); if (!j) j = n - i + 1; val = val substr(s, i, j); i += j - 1; continue }
     if (c == "$" && nx == "(" && substr(s, i + 2, 1) == "(") {
       word(); val = val "\001"
       for (d = 0; i <= n; i++) { c = substr(s, i, 1); if (c == "(") d++; if (c == ")" && --d == 0) break }
       continue
     }
-    if (c == "$" && nx == "(") { if (have) val = val "\001"; op("O", i, i + 2, "$("); i++; continue }
+    if (c == "$" && nx == "(") { word(); body(c); continue }
     if (c == "`") { word(); body(c); continue }
+    if (c == "(" && have && val ~ /^[A-Za-z_][A-Za-z0-9_]*[+]?=$/) {
+      val = val "\001"
+      for (d = 0; i <= n; i++) { c = substr(s, i, 1); if (c == "(") d++; if (c == ")" && --d == 0) break }
+      continue
+    }
+    if (c == "(" && nx == "(") {
+      flush()
+      for (d = 0; i <= n; i++) { c = substr(s, i, 1); if (c == "(") d++; if (c == ")" && --d == 0) break }
+      continue
+    }
     if (c == "(") { op("O", i, i + 1, "("); continue }
     if (c == ")") { op("C", i, i + 1, ")"); continue }
     if ((c == "<" || c == ">") && nx == "(") { op("O", i, i + 2, "("); i++; continue }
     if (c == "<" || c == ">") {
       if (have && val ~ /^[0-9]+$/) { rstart = wstart; have = 0; val = "" } else { flush(); rstart = i }
       if (c == "<" && nx == "<" && substr(s, i + 2, 1) != "<") {
+        strip = substr(s, i + 2, 1) == "-"
         for (i += 2; substr(s, i, 1) ~ /[- \t]/; i++);
-        q = substr(s, i, 1); if (q == "\047" || q == "\"") i++; else q = ""
-        for (d = ""; i <= n && (c = substr(s, i, 1)) !~ (q != "" ? q : "[ \t\n;&|<>()]"); i++) d = d c
-        hd[++nhd] = d; if (q == "") i--
+        d = ""; q = ""
+        for (; i <= n; i++) {
+          c = substr(s, i, 1)
+          if (q != "") { if (c == q) q = ""; else d = d c; continue }
+          if (c == "\047" || c == "\"") { q = c; continue }
+          if (c == "\\") { i++; d = d substr(s, i, 1); continue }
+          if (c ~ /[ \t\n;&|<>()]/) break
+          d = d c
+        }
+        hd[++nhd] = d; hs[nhd] = strip; i--
         emit("R", rstart, i + 1, ""); continue
       }
       while (substr(s, i + 1, 1) ~ /[<>|]/) i++
@@ -197,9 +255,10 @@ queue_words() {
 }
 
 # Splits TX into tokens, queues the substitution bodies in it, and sets CF and
-# CL to each simple command's first and last token.
+# CL to each simple command's first and last token. A `)` that closes no group
+# ends a case pattern, so the words before it are no command.
 tokenize() {
-  local tokens k st en v t open=0 at_start=1
+  local tokens k st en v t open=0 at_start=1 depth=0
   tokens=$(printf '%s\n' "$TX" | awk "$TOKENIZE")
   K=() S=() E=() V=() CF=() CL=()
   while IFS=$'\t' read -r k st en v; do
@@ -211,9 +270,21 @@ tokenize() {
       queue "${V[t]}" "${S[t]}" "$CTX"
       continue
     fi
-    if [[ $k == W && $at_start == 1 && (${V[t]} == "{" || ${V[t]} == "}") ]]; then k=O; fi
+    if [[ $k == W && $at_start == 1 && (${V[t]} == "{" || ${V[t]} == "}") ]]; then
+      if [[ ${V[t]} == "{" ]]; then k=O; else k=C; fi
+    fi
     K[t]=$k
     case $k in
+      O) depth=$((depth + 1)) open=0 at_start=1 ;;
+      C)
+        if ((depth > 0)); then
+          depth=$((depth - 1))
+        elif ((open)); then
+          CF=("${CF[@]:0:${#CF[@]}-1}")
+          CL=("${CL[@]:0:${#CF[@]}}")
+        fi
+        open=0 at_start=1
+        ;;
       W | R)
         if ((open == 0)); then
           CF+=("$t")
@@ -279,7 +350,8 @@ resolve() {
     w=${WD[I]}
     I=$((I + 1))
     case ${w##*/} in
-      if | then | elif | else | do | while | until | '!' | builtin | nohup) ;;
+      if | then | elif | else | do | while | until | '!' | builtin) ;;
+      nohup) skip_opts '' '' ;;
       command)
         for ((k = I; k < END; k++)); do
           case ${WD[k]} in
@@ -301,7 +373,7 @@ resolve() {
       time | gtime) skip_opts ' --format --output ' fo ;;
       xargs) skip_opts ' --arg-file --delimiter --max-args --max-procs --max-chars --process-slot-var ' adEIJLnPRSs ;;
       *)
-        if [[ ! $w =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
+        if [[ ! $w =~ ^[A-Za-z_][A-Za-z0-9_]*\+?= ]]; then
           NI=$((I - 1))
           return 0
         fi
@@ -337,10 +409,11 @@ rm_at() {
   offend rm "$1" "$2" "$1" "$last" trash
 }
 
-# Records a git rm in the git command at WD[$1..$2). A git option before rm,
-# such as -C, changes what its paths name, so that command is not rebuilt.
+# Records a git rm in the git command at WD[$1..$2). git reads its options
+# after the paths too. A git option before rm, such as -C, changes what its
+# paths name, so that command is not rebuilt.
 git_rm() {
-  local i=$(($1 + 1)) j last global=0 keep=0 build=1
+  local i=$(($1 + 1)) j last global=0 keep=0 build=1 paths=0
   while ((i < $2)); do
     case ${WD[i]} in
       -C | -c | --git-dir | --work-tree | --namespace | --super-prefix | --config-env) i=$((i + 2)) ;;
@@ -359,9 +432,9 @@ git_rm() {
       --?*) ;;
       -*n*) keep=1 ;;
       -?*) ;;
-      *) break ;;
+      *) paths=1 ;;
     esac
-    last=$j
+    if ((!paths)); then last=$j; fi
   done
   if ((keep)); then
     offend keep "$1" "$2"
@@ -412,7 +485,7 @@ find_actions() {
   local i j
   for ((i = $1 + 1; i < $2; i++)); do
     case ${WD[i]} in
-      -delete) offend find-delete "$1" "$2" "$i" "$i" '-exec trash {} +' ;;
+      -delete) offend find-delete "$1" "$2" "$i" "$i" '-exec trash {} + -prune' ;;
       -exec | -execdir | -ok | -okdir)
         for ((j = i + 1; j < $2; j++)); do
           if [[ ${WD[j]} == ';' || ${WD[j]} == + ]]; then break; fi
@@ -424,9 +497,37 @@ find_actions() {
   done
 }
 
+# Checks each command the fd at WD[$1..$2) runs with -x, -X, --exec or
+# --exec-batch, which take the words up to a `;` or the end.
+fd_exec() {
+  local i j
+  for ((i = $1 + 1; i < $2; i++)); do
+    case ${WD[i]} in
+      -x | -X | --exec | --exec-batch)
+        for ((j = i + 1; j < $2; j++)); do
+          if [[ ${WD[j]} == ';' ]]; then break; fi
+        done
+        check $((i + 1)) "$j"
+        i=$j
+        ;;
+    esac
+  done
+}
+
+# Queues the command of the trap at WD[$1..$2); an option, an empty command, or
+# `-` sets none.
+trap_command() {
+  local i=$(($1 + 1))
+  if [[ ${WD[i]:-} == -- ]]; then i=$((i + 1)); fi
+  case ${WD[i]:-} in
+    '' | -*) return 0 ;;
+  esac
+  if ((i < $2)); then queue_words "$i" "$i" trap; fi
+}
+
 # Records each deletion that WD[$1..$2) runs, and queues each script it hands on.
 check() {
-  local at end=$2
+  local at end=$2 from
   I=$1 END=$2
   resolve
   if ((NI >= end)); then return 0; fi
@@ -434,10 +535,16 @@ check() {
   case ${WD[at]##*/} in
     rm) rm_at "$at" "$end" ;;
     git) git_rm "$at" "$end" ;;
-    bash | sh | zsh) shell_script "$at" "$end" ;;
+    bash | sh | zsh | dash) shell_script "$at" "$end" ;;
     ssh) remote_command "$at" "$end" ;;
-    eval) if ((at + 1 < end)); then queue_words $((at + 1)) $((end - 1)) eval; fi ;;
-    find) find_actions "$at" "$end" ;;
+    eval)
+      from=$((at + 1))
+      if [[ ${WD[from]:-} == -- ]]; then from=$((from + 1)); fi
+      if ((from < end)); then queue_words "$from" $((end - 1)) eval; fi
+      ;;
+    trap) trap_command "$at" "$end" ;;
+    find | gfind) find_actions "$at" "$end" ;;
+    fd | fdfind) fd_exec "$at" "$end" ;;
   esac
 }
 
