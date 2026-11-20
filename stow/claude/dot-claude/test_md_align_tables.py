@@ -75,6 +75,19 @@ ASCII_ALIGNED = (
 
 NO_TABLE = "# Title\n\nProse paragraph with a | pipe that is not a table.\n\n- bullet\n"
 
+# A YAML block scalar holding table text: realigning it would strip the indent
+# that keeps those lines inside the scalar and break the frontmatter.
+FRONTMATTER_TABLE = (
+    "---\n"
+    "notes: |\n"
+    "  | a | b |\n"
+    "  |---|---|\n"
+    "  | longer cell | x |\n"
+    "---\n"
+    "\n"
+    "# Title\n"
+)
+
 
 @unittest.skipIf(mod is None, f"wcwidth unavailable: {IMPORT_ERROR}")
 class DisplayWidthTest(unittest.TestCase):
@@ -128,6 +141,9 @@ class NoRegressionTest(unittest.TestCase):
 
     def test_file_without_a_table_is_byte_identical(self):
         self.assertEqual(NO_TABLE, align(NO_TABLE))
+
+    def test_table_inside_frontmatter_is_byte_identical(self):
+        self.assertEqual(FRONTMATTER_TABLE, align(FRONTMATTER_TABLE))
 
     def test_alignment_is_idempotent(self):
         for name, src in (

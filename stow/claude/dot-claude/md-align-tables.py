@@ -148,10 +148,24 @@ def format_table(header: list[str], sep: list[str], body: list[list[str]]) -> li
     return out
 
 
+def frontmatter_end(lines: list[str]) -> int:
+    """Index just past a leading YAML frontmatter block, or 0 when there is none.
+
+    Matches md-wrap.py: the block opens when the first non-blank line is `---`.
+    """
+    first = next((k for k, line in enumerate(lines) if line.strip()), None)
+    if first is None or lines[first].strip() != "---":
+        return 0
+    for k in range(first + 1, len(lines)):
+        if lines[k].strip() == "---":
+            return k + 1
+    return len(lines)
+
+
 def process(lines: list[str]) -> list[str]:
-    result: list[str] = []
+    i = frontmatter_end(lines)
+    result: list[str] = lines[:i]
     in_fence = False
-    i = 0
     n = len(lines)
     while i < n:
         line = lines[i]
