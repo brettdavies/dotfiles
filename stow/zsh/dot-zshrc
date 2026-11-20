@@ -131,6 +131,8 @@ _precmd_osc7() {
 }
 add-zsh-hook precmd _precmd_osc7
 
+[[ -f "${DOTFILES_SHELL_DIR:-}/rex-focus-tint.zsh" ]] && source "${DOTFILES_SHELL_DIR}/rex-focus-tint.zsh"
+
 # User configuration
 
 # export MANPATH="/usr/local/man:$MANPATH"
