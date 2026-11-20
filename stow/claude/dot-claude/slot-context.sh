@@ -19,7 +19,6 @@ if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); 
   exit 1
 fi
 
-AS_HOME=$(readlink -f "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../../scripts/agent-slot")
 # The longest context sent whole: under Claude Code's 10,000-character hook limit, with room for JSON escapes.
 CONTEXT_MAX=9500
 
@@ -231,6 +230,7 @@ HOOK_PAYLOAD_IN=$(cat)
   set -euo pipefail
   shopt -s inherit_errexit
   exec 2>/dev/null
+  AS_HOME=$(readlink -f "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../../scripts/agent-slot")
   # shellcheck source=/dev/null
   source "$AS_HOME/lib/hook.sh"
   hook_init slot-context "$AS_HOME"

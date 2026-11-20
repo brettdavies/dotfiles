@@ -23,8 +23,6 @@ if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); 
   exit 1
 fi
 
-AS_HOME=$(readlink -f "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../../scripts/agent-slot")
-
 REVIEW_SKILL=compound-engineering:ce-code-review
 # A claude command (a word of its own, not a path such as ~/.claude/ nor quoted text) whose first quoted argument, the
 # prompt, opens with a slash name; a mention of the name elsewhere in the command or the prompt does not match.
@@ -146,6 +144,7 @@ HOOK_PAYLOAD_IN=$(cat)
   set -euo pipefail
   shopt -s inherit_errexit
   exec 2>/dev/null
+  AS_HOME=$(readlink -f "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../../scripts/agent-slot")
   # shellcheck source=/dev/null
   source "$AS_HOME/lib/hook.sh"
   hook_init slot-review-cap "$AS_HOME"

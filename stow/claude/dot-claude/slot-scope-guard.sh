@@ -45,8 +45,6 @@ if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); 
   exit 1
 fi
 
-AS_HOME=$(readlink -f "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../../scripts/agent-slot")
-
 # A git command that starts a command: after a separator, a newline, an opening brace or parenthesis, a backtick, or the
 # quote that opens a `bash -c` script, past any assignments, wrappers (`time`, `timeout -k 30 600`, `env`, `sudo -u me`, `!`, and the
 # like), and git's own options. It is a guard, not a trust boundary: a wrapper this does not list runs the command
@@ -389,6 +387,7 @@ HOOK_PAYLOAD_IN=$(cat)
   set -euo pipefail
   shopt -s inherit_errexit
   exec 2>/dev/null
+  AS_HOME=$(readlink -f "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../../scripts/agent-slot")
   # shellcheck source=/dev/null
   source "$AS_HOME/lib/hook.sh"
   hook_init slot-scope-guard "$AS_HOME"
