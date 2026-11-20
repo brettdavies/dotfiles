@@ -11,9 +11,10 @@
 #
 # A typed command leaves the shell behind when the program exits, so a pane outlives its program. Sessions start from
 # an empty environment: a tmux server started from inside a Claude session would otherwise inherit its child-session
-# marker, and every Claude in the slot would then save no transcript. They start from /, so the server a first session
-# starts never holds a slot as its working directory. That first session starts the server in a transient user scope of
-# its own, so the server and its agents outlive whatever asked for them.
+# marker, and every Claude in the slot would then save no transcript. TMUX_TMPDIR stays when set, since it picks the
+# socket, and every later call on the server reaches it through the caller's own environment. They start from /, so the
+# server a first session starts never holds a slot as its working directory. That first session starts the server in a
+# transient user scope of its own, so the server and its agents outlive whatever asked for them.
 #
 # Bypass permissions mode still stops on ask rules, deny rules, and hooks, and on Claude's trust dialog for an untrusted
 # path. It starts without its own warning only when ~/.claude/settings.json accepts it (agent-slot doctor checks).
@@ -184,7 +185,7 @@ sessions_start() {
     made=$name
     [[ $n != "$SLOT_PRIME" ]] || made=$name$SESSIONS_STAGING$BASHPID
     start=(/usr/bin/env -i -C / HOME="$HOME" USER="$USER" LOGNAME="$USER" SHELL="$shell" TERM=xterm-256color
-      LANG="${LANG:-C.UTF-8}" PATH="$PATH"
+      LANG="${LANG:-C.UTF-8}" PATH="$PATH" ${TMUX_TMPDIR:+"TMUX_TMPDIR=$TMUX_TMPDIR"}
       "$AS_TMUX" -L "$AS_TMUX_SOCKET" -f "$AS_TMUX_CONF" new-session -d -s "$made" "${env[@]}" -c "$path" "${extra[@]}" "$shell" -l)
     if [[ -n $SLOT_SESSIONS || ${#SESSIONS_CREATED[@]} -gt 0 ]] || ! _sessions_scoped "${start[@]}"; then
       bounded out tmux 10 "${start[@]}" || _sessions_fail "$repo" "$n" "$name"

@@ -5,37 +5,55 @@
 #
 # Run: bats tests/restow-on-pull.bats
 #
-# Each test builds an origin, a deployed clone ("main") whose hooks are the
+# Each test gets its own origin, a deployed clone ("main") whose hooks are the
 # ones in this working tree, and a sandbox deploy target. A probe stands in for
 # scripts/stow-deploy where a test only needs to know whether and how the hook
 # called it; the others run the real script against the sandbox.
 
 bats_require_minimum_version 1.5.0
 
-setup() {
+# The origin, "main" and the scratch clone "up" are built once and copied per
+# test. The clones' origin URLs are the only absolute paths they hold once their
+# reflogs are gone.
+setup_file() {
   # An inherited GIT_DIR outranks -C, so every git call below would retarget
   # whichever repo the caller was in.
   unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
   load lib/dotfiles-fixture
 
-  # git prints the checkout's resolved path, and macOS temp dirs sit behind the /var -> /private/var link.
-  FIX=$(cd "$BATS_TEST_TMPDIR" && pwd -P)
-  T="$FIX/home"
-  export STOW_DEPLOY_TARGET="$T"
-  mkdir -p "$T" "$FIX/bin"
-  # The hooks call Git LFS and git-crypt; neither may reach the real tools.
-  printf '#!/bin/sh\necho "git-lfs $*" >>"%s/lfs.log"\n' "$FIX" >"$FIX/bin/git-lfs"
-  printf '#!/bin/sh\nexit 0\n' >"$FIX/bin/git-crypt"
-  chmod +x "$FIX/bin/git-lfs" "$FIX/bin/git-crypt"
-  PATH="$FIX/bin:$PATH"
+  local bin="$BATS_FILE_TMPDIR/bin" seed="$BATS_FILE_TMPDIR/seed"
+  FIX="$BATS_FILE_TMPDIR/template"
+  mkdir -p "$bin" "$FIX/home"
+  # The hooks call Git LFS and git-crypt; neither may reach the real tools. The
+  # git-lfs stub logs into the directory its test names in RESTOW_FIX.
+  printf '#!/bin/sh\necho "git-lfs $*" >>"$RESTOW_FIX/lfs.log"\n' >"$bin/git-lfs"
+  printf '#!/bin/sh\nexit 0\n' >"$bin/git-crypt"
+  chmod 555 "$bin/git-lfs" "$bin/git-crypt"
+  export PATH="$bin:$PATH"
 
-  fixture_repo "$FIX/seed"
-  cp -R "$FIXTURE_SRC/.githooks" "$FIX/seed/"
-  fixture_git "$FIX/seed" add -A
-  fixture_git "$FIX/seed" commit -q -m hooks
+  fixture_repo "$seed"
+  cp -R "$FIXTURE_SRC/.githooks" "$seed/"
+  fixture_git "$seed" add -A
+  fixture_git "$seed" commit -q -m hooks
   git init -q --bare -b dev "$FIX/origin.git"
-  fixture_git "$FIX/seed" push -q "$FIX/origin.git" dev
-  clone main
+  fixture_git "$seed" push -q "$FIX/origin.git" dev
+  RESTOW_FIX=$FIX STOW_DEPLOY_TARGET="$FIX/home" clone main
+  git clone -q "$FIX/origin.git" "$FIX/up"
+  # A clone's reflogs name the path it cloned from, which a copy must not hold.
+  rm -rf "$FIX/main/.git/logs" "$FIX/up/.git/logs"
+}
+
+setup() {
+  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
+  load lib/dotfiles-fixture
+
+  # git prints the checkout's resolved path, and macOS temp dirs sit behind the /var -> /private/var link.
+  FIX="$(cd "$BATS_TEST_TMPDIR" && pwd -P)/fix"
+  T="$FIX/home"
+  export STOW_DEPLOY_TARGET="$T" RESTOW_FIX="$FIX"
+  cp -R "$BATS_FILE_TMPDIR/template" "$FIX"
+  git -C "$FIX/main" remote set-url origin "$FIX/origin.git"
+  git -C "$FIX/up" remote set-url origin "$FIX/origin.git"
 }
 
 # clone <name>: a clone of origin with this working tree's hooks turned on.
@@ -48,7 +66,6 @@ clone() {
 # scratch clone that runs no hooks.
 upstream() {
   local up="$FIX/up"
-  [ -d "$up" ] || git clone -q "$FIX/origin.git" "$up"
   fixture_git "$up" pull -q
   mkdir -p "$(dirname "$up/$1")"
   printf '%s\n' "$2" >"$up/$1"

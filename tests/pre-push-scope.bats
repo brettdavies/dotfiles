@@ -12,26 +12,48 @@ bats_require_minimum_version 1.5.0
 
 # A working repository with a bare origin whose dev holds one shell file, so
 # a new ref has a base to compare against and a pushed sha exists on both
-# sides. Every test starts from this state.
-setup() {
-  FIX="$(mktemp -d)"
-  WORK="$FIX/work"
-  git init -q --bare "$FIX/origin.git"
-  git init -q -b dev "$WORK"
-  git -C "$WORK" config user.email test@example.com
-  git -C "$WORK" config user.name test
-  git -C "$WORK" config commit.gpgsign false
-  git -C "$WORK" config core.hooksPath /dev/null
-  printf '#!/bin/sh\necho a\n' >"$WORK/a.sh"
-  git -C "$WORK" add a.sh
-  git -C "$WORK" commit -qm one
-  git -C "$WORK" remote add origin "$FIX/origin.git"
-  git -C "$WORK" push -q -u origin dev
-  DEV_SHA=$(git -C "$WORK" rev-parse HEAD)
+# sides. Built once; every test starts from its own copy.
+#
+# The stubs the hook tests install are written once too, read-only, and linked
+# into each copy: a test that writes through a link would change every later
+# test's stub.
+setup_file() {
+  local template="$BATS_FILE_TMPDIR/template" s t
+  git init -q --bare "$template/origin.git"
+  git init -q -b dev "$template/work"
+  git -C "$template/work" config user.email test@example.com
+  git -C "$template/work" config user.name test
+  git -C "$template/work" config commit.gpgsign false
+  git -C "$template/work" config tag.gpgsign false
+  git -C "$template/work" config core.hooksPath /dev/null
+  printf '#!/bin/sh\necho a\n' >"$template/work/a.sh"
+  git -C "$template/work" add a.sh
+  git -C "$template/work" commit -qm one
+  git -C "$template/work" remote add origin "$template/origin.git"
+  git -C "$template/work" push -q -u origin dev
+  DEV_SHA=$(git -C "$template/work" rev-parse HEAD)
+
+  # Gate stubs record each call in $STUB_FIX. The perf suite prints a TAP
+  # stream; a perf-skip file in $STUB_FIX makes every test in it skip.
+  GATE_STUBS="$BATS_FILE_TMPDIR/gate-stubs" STUB_BIN="$BATS_FILE_TMPDIR/bin"
+  mkdir -p "$GATE_STUBS" "$STUB_BIN"
+  for s in lint-shell lint-workflows run-tests core-env-guard.sh; do
+    # shellcheck disable=SC2016 # expanded by the stub, from the test's STUB_FIX
+    printf '#!/bin/sh\ntouch "$STUB_FIX/ran-%s"\nprintf "%%s %%s\\n" "%s" "$*" >>"$STUB_FIX/calls"\n' "$s" "$s" >"$GATE_STUBS/$s"
+    # shellcheck disable=SC2016
+    printf 'case "$*" in --perf-only) if [ -e "$STUB_FIX/perf-skip" ]; then echo "ok 1 probe # skip not deployed"; else echo "ok 1 probe"; fi ;; esac\n' >>"$GATE_STUBS/$s"
+  done
+  for t in shellcheck actionlint bats git-lfs; do printf '#!/bin/sh\nexit 0\n' >"$STUB_BIN/$t"; done
+  chmod 555 "$GATE_STUBS"/* "$STUB_BIN"/*
+  export DEV_SHA GATE_STUBS STUB_BIN
 }
 
-teardown() {
-  rm -rf "$FIX"
+setup() {
+  FIX="$BATS_TEST_TMPDIR/fix"
+  WORK="$FIX/work"
+  cp -R "$BATS_FILE_TMPDIR/template" "$FIX"
+  git -C "$WORK" remote set-url origin "$FIX/origin.git"
+  export STUB_FIX="$FIX"
 }
 
 commit_file() {
@@ -198,8 +220,11 @@ scope() {
 # paths_read_by_shell_startup: can the change move shell-startup latency
 # ---------------------------------------------------------------------------
 
+# A here-string, not a pipe: the function returns at its first match, and printf
+# writes each path separately, so a later write can reach the closed pipe and
+# print "write error: Broken pipe" into run's output when SIGPIPE is ignored.
 startup_paths() {
-  run bash -c '. "$1"; shift; printf "%s\n" "$@" | paths_read_by_shell_startup' _ "$LIB" "$@"
+  run bash -c '. "$1"; shift; paths_read_by_shell_startup <<<"$(printf "%s\n" "$@")"' _ "$LIB" "$@"
 }
 
 @test "every file a suite shell sources from the checkout is startup-relevant" {
@@ -351,27 +376,27 @@ startup_reads() {
 # pre-push end to end: does the gate run
 # ---------------------------------------------------------------------------
 
-# Install the real hook and lib into the fixture with stub gate scripts that
-# record an invocation, and stub tools so every `command -v` succeeds.
+# Link the real hook and lib into the fixture, with the stub gate scripts that
+# record an invocation; STUB_BIN holds stub tools so every `command -v` succeeds.
+# The hook finds its lib beside the link, not beside its target.
 install_hook_with_stubs() {
-  mkdir -p "$WORK/.githooks/lib" "$WORK/scripts" "$FIX/bin"
-  cp "$REPO/.githooks/pre-push" "$WORK/.githooks/pre-push"
-  cp "$REPO"/.githooks/lib/*.sh "$WORK/.githooks/lib/"
-  for s in lint-shell lint-workflows run-tests core-env-guard.sh; do
-    printf '#!/bin/sh\ntouch "%s/ran-%s"\nprintf "%%s %%s\\n" "%s" "$*" >>"%s/calls"\n' "$FIX" "$s" "$s" "$FIX" >"$WORK/scripts/$s"
-    # The perf suite prints a TAP stream; a marker file makes every test skip.
-    printf 'case "$*" in --perf-only) if [ -e "%s/perf-skip" ]; then echo "ok 1 probe # skip not deployed"; else echo "ok 1 probe"; fi ;; esac\n' "$FIX" >>"$WORK/scripts/$s"
-    chmod +x "$WORK/scripts/$s"
-  done
-  for t in shellcheck actionlint bats git-lfs; do
-    printf '#!/bin/sh\nexit 0\n' >"$FIX/bin/$t"
-    chmod +x "$FIX/bin/$t"
-  done
+  mkdir -p "$WORK/.githooks/lib" "$WORK/scripts"
+  ln -s "$REPO/.githooks/pre-push" "$WORK/.githooks/pre-push"
+  ln -s "$REPO"/.githooks/lib/*.sh "$WORK/.githooks/lib/"
+  ln -s "$GATE_STUBS"/* "$WORK/scripts/"
+}
+
+# replace_gate <name> <script>: the fixture's gate script <name> becomes <script>,
+# in place of the link to the shared stub.
+replace_gate() {
+  rm "$WORK/scripts/$1"
+  printf '%s' "$2" >"$WORK/scripts/$1"
+  chmod +x "$WORK/scripts/$1"
 }
 
 # hook <line>...: run the installed pre-push with the given stdin lines.
 hook() {
-  run env PATH="$FIX/bin:$PATH" bash -c 'cd "$1"; url=$2; shift 2; printf "%s\n" "$@" | .githooks/pre-push origin "$url"' _ "$WORK" "$FIX/origin.git" "$@"
+  run env PATH="$STUB_BIN:$PATH" bash -c 'cd "$1"; url=$2; shift 2; printf "%s\n" "$@" | .githooks/pre-push origin "$url"' _ "$WORK" "$FIX/origin.git" "$@"
 }
 
 gate_ran() { [ -e "$FIX/ran-lint-shell" ] && [ -e "$FIX/ran-run-tests" ]; }
@@ -555,7 +580,7 @@ perf_ran() { grep -qx 'run-tests --perf-only' "$FIX/calls"; }
 @test "hook: a failing perf suite fails the push" {
   install_hook_with_stubs
   # Only the perf call fails, so the push fails on it or on nothing.
-  printf '#!/bin/sh\ncase "$*" in --perf-only) exit 1 ;; esac\n' >"$WORK/scripts/run-tests"
+  replace_gate run-tests $'#!/bin/sh\ncase "$*" in --perf-only) exit 1 ;; esac\n'
   new=$(commit_file stow/zsh/dot-zshrc 'echo z')
   hook "refs/heads/dev $new refs/heads/dev $DEV_SHA"
   [ "$status" -eq 1 ]
@@ -563,7 +588,7 @@ perf_ran() { grep -qx 'run-tests --perf-only' "$FIX/calls"; }
 
 @test "hook: a failing gate script fails the push" {
   install_hook_with_stubs
-  printf '#!/bin/sh\nexit 1\n' >"$WORK/scripts/run-tests"
+  replace_gate run-tests $'#!/bin/sh\nexit 1\n'
   new=$(commit_file b.sh 'echo b')
   hook "refs/heads/dev $new refs/heads/dev $DEV_SHA"
   [ "$status" -eq 1 ]
@@ -582,14 +607,14 @@ enable_hook() {
 @test "git push --delete skips the gate" {
   enable_hook
   git -C "$WORK" push -q origin dev:feat/x
-  run env PATH="$FIX/bin:$PATH" git -C "$WORK" push -q origin --delete feat/x
+  run env PATH="$STUB_BIN:$PATH" git -C "$WORK" push -q origin --delete feat/x
   [ "$status" -eq 0 ]
   run ! gate_ran
 }
 
 @test "git push with everything up to date skips the gate" {
   enable_hook
-  run env PATH="$FIX/bin:$PATH" git -C "$WORK" push -q origin dev
+  run env PATH="$STUB_BIN:$PATH" git -C "$WORK" push -q origin dev
   [ "$status" -eq 0 ]
   run ! gate_ran
 }
@@ -597,7 +622,7 @@ enable_hook() {
 @test "git push of a tag on a pushed commit skips the gate" {
   enable_hook
   git -C "$WORK" tag -a v1 -m v1
-  run env PATH="$FIX/bin:$PATH" git -C "$WORK" push -q origin v1
+  run env PATH="$STUB_BIN:$PATH" git -C "$WORK" push -q origin v1
   [ "$status" -eq 0 ]
   run ! gate_ran
 }
@@ -605,7 +630,7 @@ enable_hook() {
 @test "git push of a shell change runs the gate" {
   enable_hook
   commit_file b.sh 'echo b' >/dev/null
-  run env PATH="$FIX/bin:$PATH" git -C "$WORK" push -q origin dev
+  run env PATH="$STUB_BIN:$PATH" git -C "$WORK" push -q origin dev
   [ "$status" -eq 0 ]
   gate_ran
 }

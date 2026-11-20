@@ -77,18 +77,19 @@ if [ "$ONLY" = true ]; then
   fi
 fi
 
+PLATFORM=$(uname -s)
+
 # Package expansion
 if [ "$ALL" = true ]; then
   if [ $# -gt 0 ]; then
     echo "ERROR: --all cannot be combined with explicit package names" >&2
     exit "$EXIT_USAGE"
   fi
-  platform=$(uname -s)
-  case "$platform" in
+  case "$PLATFORM" in
     Darwin) set -- "${SHARED_PACKAGES[@]}" "${DESKTOP_PACKAGES[@]}" ;;
     Linux) set -- "${SHARED_PACKAGES[@]}" ;;
     *)
-      echo "FATAL: unsupported platform: $platform. Use explicit package names." >&2
+      echo "FATAL: unsupported platform: $PLATFORM. Use explicit package names." >&2
       exit "$EXIT_PLATFORM"
       ;;
   esac
@@ -137,23 +138,19 @@ for pkg in "$@"; do
   fi
 done
 
-# encrypted_files <pkg>: the package's tracked files that .gitattributes marks
-# filter=git-crypt, NUL-separated, so a newly encrypted package needs no list here.
-encrypted_files() {
-  local path _attr value
-  git -C "$REPO_ROOT" ls-files -z -- "stow/$1" 2>/dev/null |
-    git -C "$REPO_ROOT" check-attr -z --stdin filter 2>/dev/null |
-    while IFS= read -r -d '' path && IFS= read -r -d '' _attr && IFS= read -r -d '' value; do
-      if [ "$value" = git-crypt ]; then
-        printf '%s\0' "$path"
-      fi
-    done
-}
+# The tracked files under stow/ that .gitattributes marks filter=git-crypt, so a
+# newly encrypted package needs no list here. Read once for every package.
+ENCRYPTED=()
+while IFS= read -r -d '' path && IFS= read -r -d '' _attr && IFS= read -r -d '' value; do
+  [ "$value" != git-crypt ] || ENCRYPTED+=("$path")
+done < <(git -C "$REPO_ROOT" ls-files -z -- stow 2>/dev/null |
+  git -C "$REPO_ROOT" check-attr -z --stdin filter 2>/dev/null)
 
 # Refuse a package whose encrypted files are still ciphertext: grep -qI reads
 # ciphertext as binary (no `file` command needed).
 for pkg in "$@"; do
-  while IFS= read -r -d '' file; do
+  for file in ${ENCRYPTED[@]+"${ENCRYPTED[@]}"}; do
+    case "$file" in "stow/$pkg/"*) ;; *) continue ;; esac
     [ -f "$REPO_ROOT/$file" ] || continue
     if ! grep -qI '' "$REPO_ROOT/$file" 2>/dev/null; then
       echo "FATAL: git-crypt is locked. Encrypted files would be deployed as binary blobs." >&2
@@ -161,7 +158,7 @@ for pkg in "$@"; do
       echo "       Run: git-crypt unlock ~/.config/git-crypt/key" >&2
       exit "$EXIT_PRECONDITION"
     fi
-  done < <(encrypted_files "$pkg")
+  done
 done
 
 # Check for dirty stow directory. Headless mode instead checks each package
@@ -304,7 +301,7 @@ STOW_FLAGS+=(--ignore='\.DS_Store$')
 # content (e.g. stow/local holds both ~/.local/bin/* helpers AND ~/.config/systemd/user/*
 # units). Every .service and .timer file in this repo is a systemd unit, so the
 # extension pattern is safe to apply broadly. No-op on Linux.
-if [ "$(uname -s)" = "Darwin" ]; then
+if [ "$PLATFORM" = "Darwin" ]; then
   STOW_FLAGS+=(--ignore='\.(service|timer)$')
   # The start-up step that restores the slot tabs and the watcher that numbers every tab run only beside the slots, on
   # the Linux server. Stow matches an ignore against the end of the node's path under the target
@@ -322,14 +319,14 @@ trap 'rm -f "$adopted_file" "$deployed_file" "$failed_file"' EXIT
 
 for pkg in "$@"; do
   # Platform guards
-  if [ "$(uname -s)" != "Darwin" ] && is_desktop_package "$pkg"; then
-    echo "WARNING: $pkg is macOS-only, skipping on $(uname -s)" >&2
+  if [ "$PLATFORM" != "Darwin" ] && is_desktop_package "$pkg"; then
+    echo "WARNING: $pkg is macOS-only, skipping on $PLATFORM" >&2
     continue
   fi
-  if [ "$(uname -s)" != "Linux" ]; then
+  if [ "$PLATFORM" != "Linux" ]; then
     case "$pkg" in
       rclone | obsidian | codex-proxy | cargo | cswap)
-        echo "WARNING: $pkg is Linux-only, skipping on $(uname -s)" >&2
+        echo "WARNING: $pkg is Linux-only, skipping on $PLATFORM" >&2
         continue
         ;;
     esac
@@ -439,7 +436,7 @@ fi
 # scripts/host-jobs-enable.sh's job. Scoped to a real $HOME deploy with
 # systemctl present, so sandboxed test targets and macOS (launchd) are
 # untouched.
-if [ "$(uname -s)" = "Linux" ] && [ "$TARGET" = "$HOME" ] \
+if [ "$PLATFORM" = "Linux" ] && [ "$TARGET" = "$HOME" ] \
   && command -v systemctl >/dev/null 2>&1 && [ -s "$deployed_file" ]; then
   _reloaded=false
   while read -r _pkg; do
@@ -524,7 +521,7 @@ if grep -qx "git" "$deployed_file" 2>/dev/null; then
   echo ""
   echo "==> Checking git local config"
   _local_cfg="$TARGET/.config/git/local"
-  _platform=$(uname -s | tr '[:upper:]' '[:lower:]')
+  _platform=$(tr '[:upper:]' '[:lower:]' <<<"$PLATFORM")
   _template="$REPO_ROOT/config/git/local.$_platform"
 
   if [ -L "$TARGET/.config/git" ]; then
@@ -551,7 +548,7 @@ fi
 if grep -qx "qmd" "$deployed_file" 2>/dev/null; then
   echo ""
   echo "==> Checking qmd collections config"
-  _qmd_platform=$(uname -s | tr '[:upper:]' '[:lower:]')
+  _qmd_platform=$(tr '[:upper:]' '[:lower:]' <<<"$PLATFORM")
   _qmd_cfg="$TARGET/.config/qmd/index.yml"
   _qmd_tmpl="$REPO_ROOT/config/qmd/index.yml.$_qmd_platform"
   _qmd_render=false
@@ -653,7 +650,7 @@ fi
 # deploy reports its drift as well and the script's output names the fix.
 # Scoped to a real $HOME deploy so a sandboxed target never reads the host's
 # launchd, Hex, or PAM config.
-if [ "$(uname -s)" = "Darwin" ] && [ "$TARGET" = "$HOME" ]; then
+if [ "$PLATFORM" = "Darwin" ] && [ "$TARGET" = "$HOME" ]; then
   echo ""
   echo "==> Checking launchd user PATH"
   "$REPO_ROOT/scripts/launchd-user-path.sh" || true

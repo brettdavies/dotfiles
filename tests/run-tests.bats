@@ -38,6 +38,7 @@ _sandbox() {
   mkdir -p "$SANDBOX/scripts" "$SANDBOX/tests/perf" "$SANDBOX/tests/lib"
   cp "$SCRIPT" "$SANDBOX/scripts/run-tests"
   cp "$BATS_TEST_DIRNAME/lib/processes.bash" "$SANDBOX/tests/lib/"
+  cp "$BATS_TEST_DIRNAME/../scripts/test-cost-guard.sh" "$SANDBOX/scripts/"
 }
 
 # _probe <path> <name> <assertion>
@@ -52,7 +53,7 @@ _line_of() {
 
 # Prints the letters of the "<letter> probe" tests in $output, sorted and joined.
 _probes_run() {
-  printf '%s\n' "$output" | sed -n 's/^ok [0-9]* \([a-z]\) probe$/\1/p' | sort | tr -d '\n'
+  printf '%s\n' "$output" | sed -n 's/^ok [0-9]* \([a-z]\) probe\( # in [0-9]* ms\)\{0,1\}$/\1/p' | sort | tr -d '\n'
 }
 
 @test "run-tests is executable" {
@@ -198,7 +199,7 @@ _affected_sandbox() {
   local started=$SECONDS
   HANG_PROBE=$BATS_TEST_TMPDIR run env -u BATS_TEST_TIMEOUT "$SANDBOX/scripts/run-tests" tests/hang.bats
   [ "$status" -eq 1 ]
-  [[ "$output" == *"not ok 1 hang probe # timeout after 2s"* ]]
+  [[ "$output" == *"not ok 1 hang probe # in "*" ms # timeout after 2 s"* ]]
   ((SECONDS - started < 15))
   [ -z "$(processes_with "HANG_PROBE=$BATS_TEST_TMPDIR")" ]
 }
@@ -330,10 +331,12 @@ _affected_sandbox() {
 # Tests within a file in parallel
 # ---------------------------------------------------------------------------
 
-# _rendezvous <path> [marker]: a two-test file whose tests each wait up to 5 s
-# for the other to start, so it passes only when its tests run concurrently.
+# _rendezvous <path> [marker [seconds]]: a two-test file whose tests each wait
+# up to <seconds> (default 5) for the other to start, so it passes only when its
+# tests run concurrently. A case that expects them to run one at a time fails
+# at the deadline whatever its length, so it passes 1.
 _rendezvous() {
-  local wait='deadline=$((SECONDS + 5)); until [ -e "$BATS_FILE_TMPDIR/$2" ]; do ((SECONDS < deadline)) || return 1; sleep 0.1; done'
+  local wait='deadline=$((SECONDS + '"${3:-5}"')); until [ -e "$BATS_FILE_TMPDIR/$2" ]; do ((SECONDS < deadline)) || return 1; sleep 0.1; done'
   {
     printf '%s\n' '#!/usr/bin/env bats'
     [ -z "${2:-}" ] || printf '%s\n' "$2"
@@ -355,7 +358,7 @@ _rendezvous() {
 
 @test "a file without the declaration runs its tests one at a time" {
   _sandbox
-  _rendezvous "$SANDBOX/tests/a.bats"
+  _rendezvous "$SANDBOX/tests/a.bats" '' 1
   _probe "$SANDBOX/tests/b.bats" "b probe" "[ 1 -eq 1 ]"
   run env RUN_TESTS_JOBS=2 "$SANDBOX/scripts/run-tests" --no-perf
   [ "$status" -eq 1 ]
@@ -428,6 +431,23 @@ _rendezvous() {
   [ "$(_line_of '# tests/a.bats')" -lt "$(_line_of 'alpha probe')" ]
   [ "$(_line_of 'alpha probe')" -lt "$(_line_of '# tests/b.bats')" ]
   [ "$(_line_of 'bravo probe')" -lt "$(_line_of '# tests/c.bats')" ]
+}
+
+@test "the largest files start first, and the output still follows argument order" {
+  _sandbox
+  # c and b take the two jobs and a starts once one of them is done. Each of c and b waits up to 5 s for the other to
+  # have started, so both lines are written before a can start, however slowly either one starts.
+  local seen='echo $1 >>"$BATS_TEST_DIRNAME/started"; d=$((SECONDS + 5)); until grep -qx "$2" "$BATS_TEST_DIRNAME/started"; do ((SECONDS < d)) || return 1; sleep 0.05; done'
+  _probe "$SANDBOX/tests/a.bats" "a probe" "echo a >>\"\$BATS_TEST_DIRNAME/started\""
+  _probe "$SANDBOX/tests/b.bats" "b probe" "seen() { $seen; }; seen b c"
+  _probe "$SANDBOX/tests/c.bats" "c probe" "seen() { $seen; }; seen c b"
+  head -c 4000 /dev/zero | tr '\0' '#' >>"$SANDBOX/tests/c.bats"
+  head -c 2000 /dev/zero | tr '\0' '#' >>"$SANDBOX/tests/b.bats"
+  run env RUN_TESTS_JOBS=2 "$SANDBOX/scripts/run-tests" --no-perf
+  [ "$status" -eq 0 ]
+  [ "$(tail -n 1 "$SANDBOX/tests/started")" = a ]
+  [ "$(_line_of '# tests/a.bats')" -lt "$(_line_of '# tests/b.bats')" ]
+  [ "$(_line_of '# tests/b.bats')" -lt "$(_line_of '# tests/c.bats')" ]
 }
 
 @test "each file's marker says how long that file ran" {
@@ -664,4 +684,126 @@ _perf_markers() {
   if [ -r /proc/loadavg ] || command -v sysctl >/dev/null 2>&1; then
     [[ "$output" =~ [0-9]+-core\ host,\ 1-minute\ load\ [0-9]+\.[0-9]+ ]]
   fi
+}
+
+# ---------------------------------------------------------------------------
+# Test cost (scripts/test-cost-guard.sh holds the rules)
+# ---------------------------------------------------------------------------
+
+@test "each test over the time budget alone fails, named with its time" {
+  _sandbox
+  printf '%s\n' '@test "slow (one) probe" {' '  sleep 0.25' '}' '@test "slow|two probe" {' '  sleep 0.25' '}' \
+    '@test "fast probe" {' '  :' '}' >"$SANDBOX/tests/a.bats"
+  run env RUN_TESTS_BUDGET_MS=120 "$SANDBOX/scripts/run-tests" tests/a.bats
+  echo "$output"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *'run-tests: over-budget: tests/a.bats: "slow (one) probe" took '*' ms alone, over the 120 ms of RUN_TESTS_BUDGET_MS'* ]]
+  [[ "$output" == *'run-tests: over-budget: tests/a.bats: "slow|two probe" took '* ]]
+  [[ "$output" != *'"fast probe" took'* ]]
+}
+
+# Usage: _default_budget <ms>; sets the sandbox guard's default budget, so a probe can exceed it in a quarter second
+# rather than sleep past 3000 ms twice.
+_default_budget() {
+  local guard="$SANDBOX/scripts/test-cost-guard.sh"
+  sed "s/RUN_TESTS_BUDGET_MS:-3000}/RUN_TESTS_BUDGET_MS:-$1}/" "$guard" >"$guard.new"
+  cat "$guard.new" >"$guard"
+  grep -q "RUN_TESTS_BUDGET_MS:-$1}" "$guard"
+}
+
+@test "an over-budget test is reported without failing the run until RUN_TESTS_BUDGET_MS is set" {
+  _sandbox
+  _default_budget 120
+  _probe "$SANDBOX/tests/a.bats" "slow probe" "sleep 0.25"
+  run env -u RUN_TESTS_BUDGET_MS "$SANDBOX/scripts/run-tests" tests/a.bats
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'run-tests: over-budget: tests/a.bats: "slow probe" took '*' ms alone, over the default 120 ms (reported only until RUN_TESTS_BUDGET_MS is set)'* ]]
+  run env RUN_TESTS_BUDGET_MS=120 "$SANDBOX/scripts/run-tests" tests/a.bats
+  [ "$status" -eq 1 ]
+  [[ "$output" == *'"slow probe" took '*' ms alone, over the 120 ms of RUN_TESTS_BUDGET_MS'* ]]
+}
+
+@test "a test whose name the source escapes is still timed alone" {
+  _sandbox
+  printf '%s\n' '@test "reads \$HOME, \"q\", \` and \\ probe" {' '  sleep 0.25' '}' >"$SANDBOX/tests/a.bats"
+  run env RUN_TESTS_BUDGET_MS=120 "$SANDBOX/scripts/run-tests" tests/a.bats
+  echo "$output"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *'run-tests: over-budget: tests/a.bats: "reads $HOME, "q", ` and \ probe" took '*' ms alone,'* ]]
+}
+
+@test "an over-budget test that fails alone is named with its time in the loaded run" {
+  _sandbox
+  printf '%s\n' '@test "seed" {' '  touch "$BATS_FILE_TMPDIR/seed"' '}' \
+    '@test "slow user of seed" {' '  [ -e "$BATS_FILE_TMPDIR/seed" ]' '  sleep 0.25' '}' >"$SANDBOX/tests/a.bats"
+  run env RUN_TESTS_BUDGET_MS=120 "$SANDBOX/scripts/run-tests" tests/a.bats
+  echo "$output"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *'run-tests: over-budget: tests/a.bats: "slow user of seed" took '*' ms in the loaded run and could not be timed alone, over the 120 ms of RUN_TESTS_BUDGET_MS'* ]]
+}
+
+@test "the time check covers a run of several files at once" {
+  _sandbox
+  _probe "$SANDBOX/tests/a.bats" "fast probe" ":"
+  _probe "$SANDBOX/tests/b.bats" "slow probe" "sleep 0.25"
+  run env RUN_TESTS_JOBS=2 RUN_TESTS_BUDGET_MS=120 "$SANDBOX/scripts/run-tests" --no-perf
+  echo "$output"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *'run-tests: over-budget: tests/b.bats: "slow probe" took '*' ms alone,'* ]]
+}
+
+@test "a process the alone rerun leaves running fails the run while the budget only reports" {
+  _sandbox
+  _default_budget 120
+  _probe "$SANDBOX/tests/a.bats" "slow probe" \
+    "if [ -e \"\$BATS_TEST_DIRNAME/.seen\" ]; then sleep 30 >/dev/null 2>&1 3>&- & fi; touch \"\$BATS_TEST_DIRNAME/.seen\"; sleep 0.25"
+  run env -u RUN_TESTS_BUDGET_MS "$SANDBOX/scripts/run-tests" tests/a.bats
+  echo "$output"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"processes tests/a.bats started were still running after bats exited"* ]]
+  [[ "$output" == *'"slow probe" took '*' ms alone, over the default 120 ms (reported only'* ]]
+}
+
+@test "a test tests/slow-tests.tsv lists passes over the time budget" {
+  _sandbox
+  _probe "$SANDBOX/tests/a.bats" "slow|one probe" "sleep 0.25"
+  printf 'a.bats\tslow|one probe\tsleeps on purpose\n' >"$SANDBOX/tests/slow-tests.tsv"
+  run env RUN_TESTS_BUDGET_MS=120 "$SANDBOX/scripts/run-tests" tests/a.bats
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ok 1 slow|one probe # in "* ]]
+}
+
+@test "a test over the budget only in the loaded run passes on its run alone" {
+  _sandbox
+  _probe "$SANDBOX/tests/a.bats" "once probe" \
+    "[ -e \"\$BATS_TEST_DIRNAME/.seen\" ] || { touch \"\$BATS_TEST_DIRNAME/.seen\"; sleep 0.4; }"
+  run env RUN_TESTS_BUDGET_MS=200 "$SANDBOX/scripts/run-tests" tests/a.bats
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [ -e "$SANDBOX/tests/.seen" ]
+}
+
+@test "the perf suite runs without a time budget" {
+  _sandbox
+  _probe "$SANDBOX/tests/perf/p.bats" "slow probe" "sleep 0.4"
+  run env RUN_TESTS_BUDGET_MS=200 "$SANDBOX/scripts/run-tests" --perf-only
+  [ "$status" -eq 0 ]
+}
+
+@test "a suite whose setup() builds a repository fails the run whether named or swept, and its tests still run" {
+  _sandbox
+  printf '%s\n' 'setup() {' '  true || fixture_repo "$BATS_TEST_TMPDIR/r"' '}' >"$SANDBOX/tests/a.bats"
+  _probe "$SANDBOX/tests/b.bats" "b probe" "true"
+  printf '%s\n' '@test "a probe" {' '  :' '}' >>"$SANDBOX/tests/a.bats"
+  run "$SANDBOX/scripts/run-tests" tests/a.bats
+  echo "$output"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"tests/a.bats:2: true || fixture_repo"* ]]
+  [[ "$output" == *"ok 1 a probe"* ]]
+  run "$SANDBOX/scripts/run-tests" --no-perf
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"tests/a.bats:2: true || fixture_repo"* ]]
+  [[ "$output" == *"ok 1 b probe"* ]]
 }
