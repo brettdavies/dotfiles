@@ -13,6 +13,11 @@ use = "yazi-rs/plugins:git"
 rev = "e0bbd20"
 hash = "347cc6b190eb0c2fd60513cc7ae37412"
 
+[[plugin.deps]]
+use = "AnirudhG07/plugins-yazi:copy-file-contents"
+rev = "3f4f1a3"
+hash = "421263a8558fbd2fdb07a75f074cc6e3"
+
 [[flavor.deps]]
 use = "yazi-rs/flavors:catppuccin-mocha"
 rev = "1183892"
