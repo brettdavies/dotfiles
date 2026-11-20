@@ -212,6 +212,18 @@ CONFIG_DIR="$BATS_TEST_DIRNAME/../config/shell"
   grep -q '\[\[ \$- == \*i\* \]\] || return' "$STOW_DIR/zsh/dot-zshrc"
 }
 
+@test "zshrc leaves compinit to oh-my-zsh" {
+  # A second compinit replaces the completion table oh-my-zsh built, dropping
+  # every completion registered after its dump was read.
+  local calls
+  calls=$(grep -n 'compinit' "$STOW_DIR/zsh/dot-zshrc" | grep -Ev '^[0-9]+:[[:space:]]*#' || true)
+  [ -z "$calls" ] || {
+    echo "dot-zshrc calls compinit; oh-my-zsh already runs it:"
+    echo "$calls"
+    return 1
+  }
+}
+
 # ---------------------------------------------------------------------------
 # .profile: sourcing order (PATH before secrets)
 # ---------------------------------------------------------------------------
