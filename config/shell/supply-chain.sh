@@ -66,8 +66,27 @@ if command -v uv >/dev/null 2>&1; then
 fi
 
 # npm — native relative age in days (v11.10.0+)
+#
+# `npm --version` boots node only to print the version in npm's own package.json,
+# so in the <prefix>/bin/npm + <prefix>/lib/node_modules/npm layout that Homebrew,
+# Linuxbrew, and nvm share the version is read from that file. Any other layout,
+# or a file with no version line, falls back to `npm --version`.
 if command -v npm >/dev/null 2>&1; then
-  _sc_npm_ver=$(npm --version 2>/dev/null)
+  _sc_npm_pkg=$(command -v npm)
+  _sc_npm_pkg=${_sc_npm_pkg%/bin/npm}/lib/node_modules/npm/package.json
+  _sc_npm_ver=
+  if [ -f "$_sc_npm_pkg" ]; then
+    while IFS= read -r _sc_line; do
+      case $_sc_line in
+        '  "version": "'*)
+          _sc_npm_ver=${_sc_line#*: \"}
+          _sc_npm_ver=${_sc_npm_ver%%\"*}
+          break
+          ;;
+      esac
+    done <"$_sc_npm_pkg"
+  fi
+  [ -n "$_sc_npm_ver" ] || _sc_npm_ver=$(npm --version 2>/dev/null)
   _sc_npm_major=${_sc_npm_ver%%.*}
   _sc_npm_rest=${_sc_npm_ver#*.}
   _sc_npm_minor=${_sc_npm_rest%%.*}
@@ -75,7 +94,7 @@ if command -v npm >/dev/null 2>&1; then
     || { [ "${_sc_npm_major:-0}" -eq 11 ] && [ "${_sc_npm_minor:-0}" -ge 10 ]; }; then
     export npm_config_min_release_age="$_sc_days"
   fi
-  unset _sc_npm_ver _sc_npm_major _sc_npm_minor _sc_npm_rest
+  unset _sc_npm_pkg _sc_line _sc_npm_ver _sc_npm_major _sc_npm_minor _sc_npm_rest
 fi
 
 # pnpm — minimumReleaseAge in minutes (v10.16.0+); env var maps to .npmrc key
