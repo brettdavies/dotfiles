@@ -1273,7 +1273,8 @@ Activated via `core.hooksPath` (set automatically by `stow-deploy`):
 
 Both gates call the same dispatchers CI calls — `scripts/lint-shell`, `scripts/lint-workflows`, `scripts/run-tests`,
 `scripts/core-env-guard.sh` — so the three cannot drift. `pre-push` runs them over the whole repo; `pre-commit` runs
-them over staged paths only. See [AGENTS.md § Local gates mirror CI](AGENTS.md#local-gates-mirror-ci).
+them over staged paths only, and bats over the suites `scripts/run-tests --affected-by` names for those paths. See
+[AGENTS.md § Local gates mirror CI](AGENTS.md#local-gates-mirror-ci).
 
 ## CI and Testing
 
