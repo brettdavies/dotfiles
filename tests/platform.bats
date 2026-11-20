@@ -16,6 +16,7 @@ setup_file() {
 
 setup() {
   load lib/platform
+  load lib/processes
   PATH="$UNAME_STUBS:$PATH"
   unset STUB_UNAME STUB_UNAME_R STUB_UNAME_M
 }
@@ -29,7 +30,7 @@ _probe() {
   printf '%s\n' '#!/usr/bin/env bats' \
     "setup_file() { load lib/platform; ${3:-true}; }" \
     "@test \"gated probe\" { load lib/platform; $2 'probe reason'; }" >"$dir/probe.bats"
-  STUB_UNAME=$1 run bats "$dir/probe.bats"
+  STUB_UNAME=$1 run env BATS_killer_pid="$BATS_WATCHDOG_JOB" bats "$dir/probe.bats"
 }
 
 @test "require_linux lets a gated suite run on Linux" {
@@ -82,11 +83,11 @@ _probe() {
 }
 
 # A suite that writes its own uname stub, or skips on the host's OS name inline,
-# brings back the copies this file's helpers replace.
+# decides the platform outside lib/platform.bash.
 @test "no suite but platform.bash writes a uname stub or skips on the host's OS name" {
   cd "$BATS_TEST_DIRNAME"
   local f files=()
-  for f in *.bats lib/*.bash; do
+  for f in *.bats perf/*.bats lib/*.bash; do
     [ "$f" = lib/platform.bash ] || files+=("$f")
   done
   run grep -nE \
@@ -99,7 +100,7 @@ _probe() {
     FNR == 1 { held = "" }
     held != "" && /(^|[[:space:]])skip([[:space:]]|$)/ { print held }
     { held = "" }
-    /uname( -s)?\)"?[[:space:]]*!?=[[:space:]]*"?(Darwin|Linux)/ {
+    /uname( -s)?\)"?[[:space:]]*[!=]?=[[:space:]]*"?(Darwin|Linux)/ {
       if (/(^|[[:space:]])skip([[:space:]]|$)/) print FILENAME ":" FNR; else held = FILENAME ":" FNR
     }' "${files[@]}"
   [ -z "$output" ] || { printf '%s\n' "$output"; false; }
