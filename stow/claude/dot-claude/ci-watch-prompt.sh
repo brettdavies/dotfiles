@@ -86,6 +86,14 @@ fi
 # Read PostToolUse payload from stdin
 payload=$(cat)
 
+# Every Bash call reaches this hook. A command the match below accepts holds one
+# of these words as written, and JSON escapes no space, so any other payload
+# ends here without starting jaq.
+case $payload in
+  *'git push'* | *'gh pr '* | *'gh release create'* | *'gh workflow run'* | *'gh api '*) ;;
+  *) exit 0 ;;
+esac
+
 # Only react to Bash tool calls
 tool_name=$(printf '%s' "$payload" | "$JQ" -r '.tool_name // ""' 2>/dev/null)
 [[ "$tool_name" == "Bash" ]] || exit 0

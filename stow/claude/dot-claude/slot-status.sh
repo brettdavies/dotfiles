@@ -32,8 +32,6 @@ else
 fi
 STATUS_LOCK_FD=
 
-AS_HOME=$(readlink -f "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../../scripts/agent-slot")
-
 status_record() {
   local event tool
   IFS=$'\t' read -r event tool <<<"$(hook_field '"\(.hook_event_name // "")\t\(.tool_name // "")"')"
@@ -125,6 +123,7 @@ if [[ ${1:-} == --replay ]]; then
     set -euo pipefail
     shopt -s inherit_errexit
     exec 2>/dev/null
+    AS_HOME=$(readlink -f "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../../scripts/agent-slot")
     # shellcheck source=/dev/null
     source "$AS_HOME/lib/hook.sh"
     hook_init slot-status "$AS_HOME"
@@ -139,6 +138,7 @@ HOOK_PAYLOAD_IN=$(cat)
   set -euo pipefail
   shopt -s inherit_errexit
   exec 2>/dev/null
+  AS_HOME=$(readlink -f "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../../../scripts/agent-slot")
   # shellcheck source=/dev/null
   source "$AS_HOME/lib/hook.sh"
   hook_init slot-status "$AS_HOME"

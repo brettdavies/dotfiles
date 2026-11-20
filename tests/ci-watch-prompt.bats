@@ -83,6 +83,18 @@ remind() {
   [[ "$CTX" != *303* ]]
 }
 
+@test "every command shape the policy names reaches the reminder" {
+  local cmd
+  for cmd in 'git push' 'gh pr create --fill' 'gh pr merge 5 --squash' 'gh release create v1.0.0' \
+    'gh workflow run ci.yml' 'gh api repos/o/r/dispatches -f event_type=go'; do
+    remind "$cmd"
+    [[ "$CTX" == *"  - 202  CI / CI"* ]] || {
+      echo "no reminder after: $cmd"
+      return 1
+    }
+  done
+}
+
 @test "the printed watcher polls every 30 s" {
   remind 'gh workflow run ci.yml'
   [[ "$CTX" == *"  gh run watch 101 --exit-status --interval 30"* ]]
