@@ -331,6 +331,22 @@ REPO="$BATS_TEST_DIRNAME/.."
   [ "${#blocking[@]}" -eq 0 ]
 }
 
+# Claude Code hands a hook a socket on fd 0. On Linux, opening /dev/stdin on a socket fails with ENXIO, so
+# `$(</dev/stdin)` reads an empty payload and exits 0 without a sound, and a guard that reads it allows every call.
+# `cat` reads fd 0 directly and works on both platforms.
+@test "no script the claude package ships opens /dev/stdin" {
+  local file line hits=()
+  for file in "$REPO"/stow/claude/dot-claude/*; do
+    [[ -f $file && -x $file ]] || continue
+    while IFS= read -r line; do
+      hits+=("${file##*/}:$line")
+    done < <(grep -nE '/dev/stdin' "$file" | grep -vE '^[0-9]+:[[:space:]]*#' || true)
+  done
+  echo "scripts that open /dev/stdin, which fails with ENXIO on a socket: ${hits[*]:-none}"
+  echo "Fix: read the payload with \$(cat)."
+  [ "${#hits[@]}" -eq 0 ]
+}
+
 # Slots and primes run the reviews their briefs name: ce-code-review, gstack /devex-review and /cso. The skills below
 # overlap those or send code to another model, so no agent may run them.
 @test "the review skills that overlap the named reviews are denied" {
