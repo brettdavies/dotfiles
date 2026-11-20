@@ -100,6 +100,10 @@ setup() { command -v jaq >/dev/null 2>&1 || skip "jaq not available"; }
   assert_rebuilt 'timeout -k 5 30 rm x && nohup rm y' 'timeout -k 5 30 trash x && nohup trash y'
 }
 
+@test "gtimeout, timeout's name on the Mac, is read as timeout" {
+  assert_rebuilt 'gtimeout 30 ssh h "rm -rf /tmp/x"' 'gtimeout 30 ssh h "trash /tmp/x"'
+}
+
 @test "an rm in a trap's command is denied" {
   assert_rebuilt "tmp=\$(mktemp -d); trap 'rm -rf \"\$tmp\"' EXIT" "tmp=\$(mktemp -d); trap 'trash \"\$tmp\"' EXIT"
 }
@@ -149,6 +153,33 @@ setup() { command -v jaq >/dev/null 2>&1 || skip "jaq not available"; }
 @test "a ) quoted inside a \$( ) body does not end it" {
   assert_rebuilt "echo \"\$(echo ')'; rm -rf x)\"" "echo \"\$(echo ')'; trash x)\""
   assert_rebuilt "x=\$(printf ')'; rm y)" "x=\$(printf ')'; trash y)"
+}
+
+@test "an apostrophe in a heredoc or comment inside a \$( ) does not hide the rm after it" {
+  assert_rebuilt $'git commit -m "$(cat <<\'EOF\'\ndon\'t break\nEOF\n)" && rm -rf build' \
+    $'git commit -m "$(cat <<\'EOF\'\ndon\'t break\nEOF\n)" && trash build'
+  assert_rebuilt $'x=$(cat <<EOF\nit\'s\nEOF\nrm -rf y)' $'x=$(cat <<EOF\nit\'s\nEOF\ntrash y)'
+  assert_rebuilt $'x=$(echo hi # it\'s\nrm -rf y)' $'x=$(echo hi # it\'s\ntrash y)'
+}
+
+@test "an escaped quote in a string inside a \$( ) does not end the string" {
+  assert_rebuilt 'out=$(jq -r ".a | select(.b == \"x\")" f.json); rm -rf tmp' \
+    'out=$(jq -r ".a | select(.b == \"x\")" f.json); trash tmp'
+  assert_rebuilt 'echo "$(printf "%s\"" a)"; rm -rf y' 'echo "$(printf "%s\"" a)"; trash y'
+  assert_rebuilt $'ssh $(jq -r ".h[] | select(.n == \\"a\\")" f) \'rm -rf /srv/x\'' \
+    $'ssh $(jq -r ".h[] | select(.n == \\"a\\")" f) \'trash /srv/x\''
+}
+
+@test "an rm in a { } group after then, do, time or ! is denied" {
+  assert_rebuilt 'if true; then { rm -rf x; }; fi' 'if true; then { trash x; }; fi'
+  assert_rebuilt 'for f in a; do { rm "$f"; }; done' 'for f in a; do { trash "$f"; }; done'
+  assert_rebuilt 'time { rm -rf x; }' 'time { trash x; }'
+  assert_rebuilt '! { rm x; }' '! { trash x; }'
+}
+
+@test "an rm in a substitution inside an array literal is denied, and a quoted ) does not end the literal" {
+  assert_rebuilt 'arr=($(rm -rf x))' 'arr=($(trash x))'
+  assert_rebuilt "arr=(')' a); rm -rf y" "arr=(')' a); trash y"
 }
 
 @test "a << inside (( )) is not a heredoc, so the lines after it are read" {
@@ -227,6 +258,20 @@ setup() { command -v jaq >/dev/null 2>&1 || skip "jaq not available"; }
   [[ "$TEXT" == *"edit it by hand."* ]]
 }
 
+@test "past a quote, substitution, or heredoc left open, an rm at a command start is denied" {
+  decide "echo it's; rm -rf y"
+  [ "$DECISION" = DENY ]
+  [[ "$TEXT" == *$'\n  rm -rf y (past where the guard lost track of the quoting)\n'* ]]
+  [[ "$TEXT" == *"edit it by hand."* ]]
+  decide $'cat << -END\nx\n-END\nrm -rf y'
+  [ "$DECISION" = DENY ]
+  decide $'echo $[1<<2]\nrm -rf y'
+  [ "$DECISION" = DENY ]
+  decide 'x=$(echo a; rm -rf y'
+  [ "$DECISION" = DENY ]
+  [ "$(grep -c 'rm -rf y' <<<"$TEXT")" -eq 1 ]
+}
+
 # ---------------------------------------------------------------------------
 # Allowed: a mention of rm that the shell does not run
 # ---------------------------------------------------------------------------
@@ -260,6 +305,11 @@ setup() { command -v jaq >/dev/null 2>&1 || skip "jaq not available"; }
 
 @test "a heredoc body holding rm passes" {
   decide $'cat >notes.md <<\'EOF\'\nrm -rf /tmp/x\nEOF\necho done'
+  [ "$DECISION" = ALLOW ]
+}
+
+@test "an apostrophe in a heredoc inside a \$( ) leaves the quoted words after it as text" {
+  decide $'printf "%s\\n" "$(cat <<EOF\nit\'s\nEOF\n)" "a" " ; rm -rf x"'
   [ "$DECISION" = ALLOW ]
 }
 
@@ -343,10 +393,24 @@ os.execv(sys.argv[1], sys.argv[1:2])'
   start=$(date +%s%N)
   run --separate-stderr "$HOOK" <"$BATS_TEST_TMPDIR/payload.json"
   end=$(date +%s%N)
-  echo "status=$status took=$(((end - start) / 1000000)) ms"
+  echo "status=$status took=$(((end - start) / 1000000)) ms stdout=$output stderr=$stderr"
   [ "$status" -eq 0 ]
   [ -z "$output" ]
   [ $(((end - start) / 1000000)) -lt 2500 ]
+}
+
+@test "a command over the 128 KiB a single argument may hold is denied as a deletion" {
+  {
+    printf 'echo '
+    head -c 140000 /dev/zero | tr '\0' x
+    printf '; rm -f x'
+  } >"$BATS_TEST_TMPDIR/cmd.txt"
+  # shellcheck disable=SC2016 # $c is a jaq variable
+  jaq -nc --rawfile c "$BATS_TEST_TMPDIR/cmd.txt" '{tool_name: "Bash", tool_input: {command: $c}}' >"$BATS_TEST_TMPDIR/payload.json"
+  run --separate-stderr "$HOOK" <"$BATS_TEST_TMPDIR/payload.json"
+  echo "status=$status stdout=${output:0:300} stderr=$stderr"
+  [ "$status" -eq 0 ]
+  [ "$(jaq -r '.systemMessage' <<<"$output")" = 'rm-guard denied [permanent-delete]: rm -f x' ]
 }
 
 @test "with neither jaq nor jq, a call holding rm is blocked naming the fix" {
