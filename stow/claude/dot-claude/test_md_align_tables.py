@@ -145,6 +145,10 @@ class NoRegressionTest(unittest.TestCase):
     def test_table_inside_frontmatter_is_byte_identical(self):
         self.assertEqual(FRONTMATTER_TABLE, align(FRONTMATTER_TABLE))
 
+    def test_dashes_after_a_blank_first_line_open_no_frontmatter(self):
+        body = "| a | b |\n|---|---|\n| longer cell | x |\n"
+        self.assertEqual("\n---\n\n" + align(body), align("\n---\n\n" + body))
+
     def test_alignment_is_idempotent(self):
         for name, src in (
             ("emoji", EMOJI_BODY),
