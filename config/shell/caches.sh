@@ -20,8 +20,9 @@ export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
 # System/OS Package Managers
 # ============================================================================
 
-# Homebrew cache (macOS only)
-if [[ "$OSTYPE" == "darwin"* ]]; then
+# Homebrew cache (macOS only). The OS comes from uname rather than $OSTYPE, so a test stub can decide it.
+_caches_os=$(uname -s)
+if [ "$_caches_os" = Darwin ]; then
   export HOMEBREW_CACHE="$XDG_CACHE_HOME/homebrew"
 fi
 
@@ -114,9 +115,10 @@ export FIREBASE_CACHE_DIR="$XDG_CACHE_HOME/firebase"
 # ============================================================================
 
 # System/OS caches
-if [[ "$OSTYPE" == "darwin"* ]]; then
+if [ "$_caches_os" = Darwin ]; then
   [ ! -d "$HOMEBREW_CACHE" ] && mkdir -p "$HOMEBREW_CACHE"
 fi
+unset _caches_os
 
 # Python caches
 [ ! -d "$POETRY_CACHE_DIR" ] && mkdir -p "$POETRY_CACHE_DIR"
