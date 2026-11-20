@@ -89,30 +89,20 @@ setup() {
 # ---------------------------------------------------------------------------
 
 @test "macOS: Ghostty config is a symlink" {
-  if [ "$(uname -s)" != "Darwin" ]; then
-    skip "macOS only"
-  fi
+  load lib/platform
+  require_macos "Ghostty is a desktop package"
   [ -L "$HOME/.config/ghostty/config" ] || [ -f "$HOME/.config/ghostty/config" ]
 }
 
-@test "macOS: markdownlint config is a symlink" {
-  if [ "$(uname -s)" != "Darwin" ]; then
-    skip "macOS only"
-  fi
+@test "markdownlint config is a symlink" {
   [ -L "$HOME/.markdownlint-cli2.yaml" ]
 }
 
-@test "macOS: editorconfig is a symlink" {
-  if [ "$(uname -s)" != "Darwin" ]; then
-    skip "macOS only"
-  fi
+@test "editorconfig is a symlink" {
   [ -L "$HOME/.editorconfig" ]
 }
 
-@test "macOS: gitattributes template is a symlink" {
-  if [ "$(uname -s)" != "Darwin" ]; then
-    skip "macOS only"
-  fi
+@test "gitattributes template is a symlink" {
   [ -L "$HOME/.claude/templates/gitattributes" ]
 }
 

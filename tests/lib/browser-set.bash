@@ -55,15 +55,13 @@ for spec in sys.argv[2:]:
   export BS_ARCHIVES BS_TEST_PIN
 }
 
-# A uname that reports BS_OS/BS_ARCH/BS_KERNEL, and a curl that serves the
+# stub_uname's uname (tests/lib/platform.bash), and a curl that serves the
 # fixture named by the URL's last component and logs its command line to
 # BS_CURL_LOG. A URL containing BS_CURL_404 answers 404; BS_CURL_SERVE replaces the bytes.
 bs_write_stubs() {
   local stubs=$1
-  cat >"$stubs/uname" <<'EOF'
-#!/usr/bin/env bash
-case "${1:-}" in -m) echo "${BS_ARCH:-x86_64}" ;; -r) echo "${BS_KERNEL:-6.8.0}" ;; *) echo "${BS_OS:-Linux}" ;; esac
-EOF
+  load lib/platform
+  stub_uname "$stubs"
   cat >"$stubs/curl" <<'EOF'
 #!/usr/bin/env bash
 ARGS="$*" url="" out=""
@@ -77,7 +75,7 @@ case "$url" in *"${BS_CURL_404:-@none@}"*) src=/nonexistent ;; *) src="$BS_ARCHI
 [ -f "$src" ] || { echo "curl: (22) The requested URL returned error: 404" >&2; exit 22; }
 cp "${BS_CURL_SERVE:-$src}" "$out"
 EOF
-  chmod +x "$stubs/uname" "$stubs/curl"
+  chmod +x "$stubs/curl"
 }
 
 # setup: a sandbox cache, and the file's stubs on PATH behind the test's own
@@ -89,7 +87,8 @@ bs_sandbox() {
   : >"$BS_CURL_LOG"
   export PLAYWRIGHT_BROWSERS_PATH="$BATS_TEST_TMPDIR/browsers"
   BP="$PLAYWRIGHT_BROWSERS_PATH"
-  unset PLAYWRIGHT_SKIP_BROWSER_GC PLAYWRIGHT_DOWNLOAD_HOST BS_OS BS_ARCH BS_KERNEL BS_CURL_404 BS_CURL_SERVE
+  unset PLAYWRIGHT_SKIP_BROWSER_GC PLAYWRIGHT_DOWNLOAD_HOST BS_CURL_404 BS_CURL_SERVE
+  export STUB_UNAME=Linux STUB_UNAME_M=x86_64 STUB_UNAME_R=6.8.0
 }
 
 # setup_file, after bs_build_archives: BS_DEPLOYED, a first deploy of the test pin
@@ -101,10 +100,11 @@ bs_build_deployed() {
   BS_DEPLOYED_OUT="$BATS_FILE_TMPDIR/deployed.out"
   BS_DEPLOYED_CURL_LOG="$BATS_FILE_TMPDIR/deployed-curl.log"
   (
-    unset PLAYWRIGHT_SKIP_BROWSER_GC PLAYWRIGHT_DOWNLOAD_HOST BS_OS BS_ARCH BS_KERNEL BS_CURL_404 BS_CURL_SERVE
+    unset PLAYWRIGHT_SKIP_BROWSER_GC PLAYWRIGHT_DOWNLOAD_HOST BS_CURL_404 BS_CURL_SERVE
     export PATH="$BATS_FILE_TMPDIR/stubs:$PATH" BS_CURL_LOG="$BS_DEPLOYED_CURL_LOG"
     : >"$BS_CURL_LOG"
-    PLAYWRIGHT_BROWSERS_PATH="$BS_DEPLOYED" "$BS_SCRIPT" --pin "$BS_TEST_PIN" >"$BS_DEPLOYED_OUT"
+    STUB_UNAME=Linux STUB_UNAME_M=x86_64 STUB_UNAME_R=6.8.0 PLAYWRIGHT_BROWSERS_PATH="$BS_DEPLOYED" \
+      "$BS_SCRIPT" --pin "$BS_TEST_PIN" >"$BS_DEPLOYED_OUT"
   )
   export BS_DEPLOYED BS_DEPLOYED_OUT BS_DEPLOYED_CURL_LOG
 }
@@ -122,7 +122,7 @@ bs_copy_deployed() {
 
 # A Mac of the given Darwin kernel (25 is macOS 26, 24 is 15, 23 is 14).
 bs_as_mac() {
-  export BS_OS=Darwin BS_ARCH=arm64 BS_KERNEL="${1:-27.0.0}"
+  export STUB_UNAME=Darwin STUB_UNAME_M=arm64 STUB_UNAME_R="${1:-27.0.0}"
 }
 
 # Nothing here may reach a cache outside the test's own sandbox.

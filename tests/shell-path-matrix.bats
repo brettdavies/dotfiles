@@ -398,7 +398,8 @@ unset _shape
 
 @test "agent Bash tool shape promotes keg-only Ruby via BASH_ENV wiring" {
   _skip_unless_deployed
-  [ "$(uname -s)" = "Darwin" ] || skip "macOS-only — keg-only Ruby demotion is Apple-specific"
+  load lib/platform
+  require_macos "keg-only Ruby demotion is Apple-specific"
   bp="${HOMEBREW_PREFIX:-$(brew --prefix 2>/dev/null)}"
   [ -n "$bp" ] && [ -d "$bp/opt/ruby/bin" ] || skip "keg-only Homebrew Ruby not installed"
 

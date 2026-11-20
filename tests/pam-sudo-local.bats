@@ -33,7 +33,9 @@ setup() {
   : >"$CALLS"
   printf '#auth       sufficient     pam_tid.so\n' >"$PAM_SUDO_LOCAL_TEMPLATE"
 
-  stub uname 'echo "${STUB_UNAME:-Darwin}"'
+  load lib/platform
+  stub_uname "$STUBS"
+  export STUB_UNAME=Darwin
   stub stat 'log stat "$@"
     [ "${*: -1}" = "$PAM_SUDO_LOCAL_TEMPLATE" ] || exit 1
     echo "$STUB_TEMPLATE_ATTRS"'

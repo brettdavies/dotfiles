@@ -6,6 +6,8 @@
 SCRIPT="$BATS_TEST_DIRNAME/../scripts/stow-deploy"
 STOW_DIR="$BATS_TEST_DIRNAME/../stow"
 
+load lib/platform
+
 # Every case that runs the script gets a per-test sandbox target. The isolation
 # lives here, not in the skips below: a worktree or second clone must never
 # re-point the live $HOME symlinks at itself.
@@ -92,9 +94,8 @@ rex_deploy() {
   mkdir -p "$fixture/scripts" "$fixture/stow" "$fixture/os" "$BATS_TEST_TMPDIR/$1"
   cp "$SCRIPT" "$fixture/scripts/stow-deploy"
   cp -R "$STOW_DIR/rex" "$fixture/stow/rex"
-  printf '#!/bin/sh\necho %s\n' "$1" >"$fixture/os/uname"
-  chmod +x "$fixture/os/uname"
-  run env PATH="$fixture/os:$PATH" STOW_DEPLOY_TARGET="$BATS_TEST_TMPDIR/$1" "$fixture/scripts/stow-deploy" --only rex
+  stub_uname "$fixture/os"
+  run env STUB_UNAME="$1" PATH="$fixture/os:$PATH" STOW_DEPLOY_TARGET="$BATS_TEST_TMPDIR/$1" "$fixture/scripts/stow-deploy" --only rex
 }
 
 @test "on Linux the rex package links the start-up module and tab-number watcher beside the shared files, and on macOS it does not" {
@@ -269,7 +270,7 @@ NOT_DEPLOYED=(ollama)
 }
 
 @test "a \$HOME deploy restarts only the shipped timers that are enabled" {
-  [ "$(uname -s)" = Linux ] || skip "systemd timers are Linux-only"
+  require_linux "systemd timers"
   command -v stow >/dev/null 2>&1 || skip "stow not installed"
   fixture="$BATS_TEST_TMPDIR/fixture"
   mkdir -p "$fixture/scripts"

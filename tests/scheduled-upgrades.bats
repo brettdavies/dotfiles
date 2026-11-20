@@ -15,6 +15,7 @@ UNITS="$REPO_ROOT/stow/local/dot-config/systemd/user"
 AGENTS="$REPO_ROOT/stow/launchagent/Library/LaunchAgents"
 
 load lib/processes
+load lib/platform
 
 teardown() {
   stop_spawned
@@ -321,11 +322,10 @@ PINS_WAITING='{"outcome":"waiting","reason":"cooldown","exit_code":75,"message":
 @test "on macOS the brew job never runs the bump" {
   darwin="$BATS_TEST_TMPDIR/darwin"
   mkdir -p "$darwin" "$BATS_TEST_TMPDIR/bu-only"
-  printf '#!/bin/sh\n[ "$1" = -s ] && echo Darwin || exec %s "$@"\n' "$(command -v uname)" >"$darwin/uname"
-  chmod +x "$darwin/uname"
+  stub_uname "$darwin"
   ln -s "$REPO_ROOT/config/shell/shell-functions" "$BATS_TEST_TMPDIR/bu-only/"
   echo 26.9.1 >"$YAZI_PINS_STATE_DIR/yazi-pins-proven"
-  run env DOTFILES_SHELL_DIR="$BATS_TEST_TMPDIR/bu-only" STUB_PINS_OUT="$PINS_BUMPED" PATH="$darwin:$STUBS:$PATH" bash "$BREW_JOB"
+  run env DOTFILES_SHELL_DIR="$BATS_TEST_TMPDIR/bu-only" STUB_PINS_OUT="$PINS_BUMPED" STUB_UNAME=Darwin PATH="$darwin:$STUBS:$PATH" bash "$BREW_JOB"
   [ "$status" -eq 0 ]
   _assert_run_log brew-upgrade
   [ ! -e "$PINS_LOG" ]
@@ -336,10 +336,9 @@ PINS_WAITING='{"outcome":"waiting","reason":"cooldown","exit_code":75,"message":
   command -v jaq >/dev/null 2>&1 || skip "jaq not available"
   darwin="$BATS_TEST_TMPDIR/darwin"
   mkdir -p "$darwin" "$BATS_TEST_TMPDIR/bu-only"
-  printf '#!/bin/sh\n[ "$1" = -s ] && echo Darwin || exec %s "$@"\n' "$(command -v uname)" >"$darwin/uname"
-  chmod +x "$darwin/uname"
+  stub_uname "$darwin"
   ln -s "$REPO_ROOT/config/shell/shell-functions" "$BATS_TEST_TMPDIR/bu-only/"
-  run env DOTFILES_SHELL_DIR="$BATS_TEST_TMPDIR/bu-only" PATH="$darwin:$STUBS:$PATH" bash "$BREW_JOB"
+  run env DOTFILES_SHELL_DIR="$BATS_TEST_TMPDIR/bu-only" STUB_UNAME=Darwin PATH="$darwin:$STUBS:$PATH" bash "$BREW_JOB"
   [ "$status" -eq 0 ]
   _assert_run_log brew-upgrade
   [ "$(printf '%s\n' "$output" | head -n 1 | jaq -r .os)" = Darwin ]
@@ -702,14 +701,14 @@ _assert_systemd_stop_ends_log() { # <script>
   log=$BATS_TEST_TMPDIR/journal.jsonl
   linux="$BATS_TEST_TMPDIR/linux"
   mkdir -p "$linux"
-  printf '#!/bin/sh\n[ "$1" = -s ] && echo Linux || exec %s "$@"\n' "$(command -v uname)" >"$linux/uname"
+  stub_uname "$linux"
   printf '#!/bin/sh\necho "==> upgraded"\n' >"$STUBS/stalled-tool"
   printf '#!/bin/sh\nshift\nexec "$@"\n' >"$STUBS/timeout"
   printf '#!/bin/sh\necho "yazi-pins: checking" >&2\n: >"$BUMP_STARTED"\nexec sleep 30\n' >"$STUBS/stalled-bump"
-  chmod +x "$STUBS"/* "$linux/uname"
+  chmod +x "$STUBS"/*
   echo 26.9.1 >"$YAZI_PINS_STATE_DIR/yazi-pins-proven"
 
-  spawn env PATH="$linux:$STUBS:$PATH" "$BREW_JOB" >"$log" 2>/dev/null 3>&-
+  spawn env STUB_UNAME=Linux PATH="$linux:$STUBS:$PATH" "$BREW_JOB" >"$log" 2>/dev/null 3>&-
   job=$!
   deadline=$((SECONDS + 30))
   until [ -e "$BUMP_STARTED" ] || ((SECONDS > deadline)); do sleep 0.1; done

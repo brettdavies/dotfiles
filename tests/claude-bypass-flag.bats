@@ -66,7 +66,8 @@ EOF
 }
 
 @test "a prime's fresh and resumed Claude lines both come from the constant that carries the flag" {
-  [ "$(uname -s)" = Linux ] || skip "Linux only: agent-slot reads /proc for agent state"
+  load lib/platform
+  require_linux "agent-slot reads /proc for agent state"
   local id=aaaaaaaa-0000-4000-8000-000000000001
   agent_slot_setup
   prime repoa

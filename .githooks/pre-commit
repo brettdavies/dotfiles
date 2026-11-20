@@ -8,14 +8,14 @@
 #
 #   1. lint-shell     <staged>            .github/workflows/shellcheck.yml
 #   2. lint-workflows <staged workflows>  .github/workflows/shellcheck.yml (same job)
-#   3. run-tests      <staged .bats>      .github/workflows/bats.yml
+#   3. run-tests      <affected suites>   .github/workflows/bats.yml
 #   4. core-env-guard <staged tests>      .github/workflows/shellcheck.yml (same job)
 #
 # Plus the two policy gates that have no CI equivalent because they are about
 # how a commit is made rather than what is in it: protected-branch and signing.
 #
 # The shell-startup perf suite (tests/perf) is skipped in CI, which has no deployed
-# dotfiles. It is not part of the staged .bats batch in step 3. A staged copy
+# dotfiles. It is not part of the batch in step 3. A staged copy
 # runs only when the commit also stages a file that shell startup reads, and
 # pre-push runs it for a startup file alone.
 #
@@ -62,10 +62,16 @@ if [ "$gpgsign" != "true" ]; then
 fi
 
 mapfile -t staged < <(git diff --cached --name-only --diff-filter=ACM)
-# A deleted or moved startup file changes startup as much as an edited one, and
-# neither is in $staged, which lists only added, copied, and modified paths.
+# A deleted or moved file breaks the suites that name it, and changes startup,
+# as much as an edited one, and neither is in $staged, which lists only added,
+# copied, and modified paths. $changed holds both names of a move.
 changed=$(git diff --cached --name-only --no-renames)
-if [ "${#staged[@]}" -eq 0 ]; then
+affected_bats=()
+if [ -n "$changed" ]; then
+  mapfile -t changed_paths <<<"$changed"
+  mapfile -t affected_bats < <(git_env_isolated ./scripts/run-tests --affected-by "${changed_paths[@]}")
+fi
+if [ "${#staged[@]}" -eq 0 ] && [ "${#affected_bats[@]}" -eq 0 ]; then
   if paths_read_by_shell_startup <<<"$changed" >/dev/null; then
     gate_skip "shell-startup timing (runs at pre-push)"
   fi
@@ -73,7 +79,6 @@ if [ "${#staged[@]}" -eq 0 ]; then
 fi
 
 mapfile -t staged_wf < <(printf '%s\n' "${staged[@]}" | grep '^\.github/workflows/.*\.ya\?ml$' || true)
-mapfile -t staged_bats < <(printf '%s\n' "${staged[@]}" | grep '\.bats$' | grep -v '^tests/perf/' || true)
 mapfile -t staged_perf < <(printf '%s\n' "${staged[@]}" | grep '^tests/perf/.*\.bats$' || true)
 mapfile -t staged_tests < <(printf '%s\n' "${staged[@]}" | grep -E '\.(bats|bash)$|(^|/)tests?/.*\.sh$' || true)
 
@@ -102,7 +107,7 @@ fi
 gate_begin
 
 # 1. ShellCheck — .github/workflows/shellcheck.yml, staged subset
-if command -v shellcheck >/dev/null 2>&1; then
+if [ "${#staged[@]}" -gt 0 ] && command -v shellcheck >/dev/null 2>&1; then
   gate_spawn shellcheck git_env_isolated ./scripts/lint-shell "${staged[@]}"
 fi
 # 2. actionlint — same CI job as ShellCheck, staged workflow files only. The
@@ -110,10 +115,10 @@ fi
 if [ "${#staged_wf[@]}" -gt 0 ] && command -v actionlint >/dev/null 2>&1; then
   gate_spawn actionlint git_env_isolated ./scripts/lint-workflows "${staged_wf[@]}"
 fi
-# 3. Bats — .github/workflows/bats.yml, staged test files only. A test broken by
-#    its own edit surfaces here; the full suite still runs in pre-push.
-if [ "${#staged_bats[@]}" -gt 0 ] && command -v bats >/dev/null 2>&1; then
-  gate_spawn bats git_env_isolated ./scripts/run-tests "${staged_bats[@]}"
+# 3. Bats — .github/workflows/bats.yml, the suites a staged path can break
+#    (run-tests --affected-by). The full suite still runs in pre-push.
+if [ "${#affected_bats[@]}" -gt 0 ] && command -v bats >/dev/null 2>&1; then
+  gate_spawn bats git_env_isolated ./scripts/run-tests "${affected_bats[@]}"
 fi
 # 4. Core env guard — same CI job as ShellCheck, staged test files only. It
 #    needs only bash, awk, and git, so there is no tool to skip on.
@@ -122,7 +127,9 @@ if [ "${#staged_tests[@]}" -gt 0 ]; then
 fi
 wait
 
-if command -v shellcheck >/dev/null 2>&1; then
+if [ "${#staged[@]}" -eq 0 ]; then
+  gate_skip "shellcheck (no staged file to lint)"
+elif command -v shellcheck >/dev/null 2>&1; then
   gate_collect shellcheck "shellcheck" "lint-shell (staged)"
 else
   gate_skip "shellcheck (install via \`brew install shellcheck\`)"
@@ -136,14 +143,10 @@ else
   gate_skip "actionlint (install via \`brew install actionlint\`)"
 fi
 
-if [ "${#staged_bats[@]}" -eq 0 ]; then
-  if [ "${#staged_perf[@]}" -gt 0 ]; then
-    gate_skip "bats (no staged test files besides the perf suite)"
-  else
-    gate_skip "bats (no staged test files)"
-  fi
+if [ "${#affected_bats[@]}" -eq 0 ]; then
+  gate_skip "bats (no suite names a staged path; pre-push runs them all)"
 elif command -v bats >/dev/null 2>&1; then
-  gate_collect bats "bats (${#staged_bats[@]} file(s))" "run-tests (staged)"
+  gate_collect bats "bats (${#affected_bats[@]} file(s))" "run-tests (affected)"
 else
   gate_skip "bats (install via \`brew install bats-core\`)"
 fi
