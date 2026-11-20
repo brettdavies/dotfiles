@@ -6,8 +6,7 @@
 # A prime's Claude keeps its <repo>-prime title, so its status line shows the work it is on instead: the label
 # session-title.sh gives a generic session, from the branch or the open PR, and nothing on a base branch. A prime is a
 # session named *-prime in a prime checkout, a clone with an origin directly under the dev root, which these tests put
-# at BATS_TEST_TMPDIR. Every other session's line is unchanged. The checkouts are real git repos, and stderr is dropped:
-# a clean repo makes the git counts print "integer expression expected", which leaves the line itself intact.
+# at BATS_TEST_TMPDIR. Every other session's line is unchanged. The checkouts are real git repos, and stderr is dropped.
 # run-tests: parallel
 
 STATUSLINE="$BATS_TEST_DIRNAME/../stow/claude/dot-claude/statusline.sh"
