@@ -46,6 +46,10 @@ if [[ -n "${HOMEBREW_PREFIX:-}" ]]; then
 fi
 fpath=($HOME/.docker/completions $fpath)
 
+if [[ -d $HOME/.grok/completions/zsh ]]; then
+  fpath=("$HOME/.grok/completions/zsh" $fpath)
+fi
+
 source "$ZSH/oh-my-zsh.sh"
 
 # Safety net: compile the completion dump if oh-my-zsh's lock-dir pattern
@@ -262,9 +266,3 @@ if [[ -n "${HOMEBREW_PREFIX:-}" ]]; then
     [[ -f "$HOMEBREW_PREFIX/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh" ]] \
         && source "$HOMEBREW_PREFIX/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
 fi
-
-# >>> grok installer >>>
-export PATH="$HOME/.grok/bin:$PATH"
-fpath=(~/.grok/completions/zsh $fpath)
-autoload -Uz compinit && compinit -C
-# <<< grok installer <<<

@@ -229,11 +229,12 @@ elif [ "$spaced" = true ] && [[ "$payload" == *+* ]]; then
   haystack+=$'\n'$(tr '+' ' ' <<<"$payload")
 fi
 
-# grep -c reads all of its input, so no early exit can turn a match into a pass.
+# A here-string has no writer for grep -q's early exit to cut short, so its
+# status alone tells a match (0) from none (1) and a failure (2).
 rc=0
-count=$(grep -aciF "${patterns[@]}" <<<"$haystack") || rc=$?
+grep -aqiF "${patterns[@]}" <<<"$haystack" || rc=$?
 [ "$rc" -le 1 ] || internal_error "$LINENO" "grep exited $rc"
-[ "$count" -gt 0 ] || exit 0
+[ "$rc" -eq 0 ] || exit 0
 
 matched=""
 i=0

@@ -331,6 +331,23 @@ REPO="$BATS_TEST_DIRNAME/.."
   [ "${#blocking[@]}" -eq 0 ]
 }
 
+# Claude Code hands a hook a socket on fd 0. On Linux, opening /dev/stdin on a socket fails with ENXIO, so
+# `$(</dev/stdin)` reads nothing: a script without errexit carries on with an empty payload and allows the call, and one
+# under `set -e` exits 1. `cat` reads fd 0 directly and works on both platforms. grep -a keeps a line that holds a byte
+# that is not valid UTF-8 from passing as binary, and `$(...)` collects the hits because bash's read drops such a line.
+@test "no script the claude package ships opens /dev/stdin" {
+  local file lines hits=""
+  for file in "$REPO"/stow/claude/dot-claude/*; do
+    [[ -f $file && -x $file ]] || continue
+    lines=$(grep -anE '/dev/stdin' "$file" | grep -avE '^[0-9]+:[[:space:]]*#' || true)
+    [ -z "$lines" ] || hits+="${file##*/}: $lines"$'\n'
+  done
+  echo "scripts that open /dev/stdin, which fails with ENXIO on a socket:"
+  echo "${hits:-none}"
+  echo "Fix: read the payload with \$(cat)."
+  [ -z "$hits" ]
+}
+
 # Slots and primes run the reviews their briefs name: ce-code-review, gstack /devex-review and /cso. The skills below
 # overlap those or send code to another model, so no agent may run them.
 @test "the review skills that overlap the named reviews are denied" {
