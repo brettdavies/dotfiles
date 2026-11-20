@@ -23,33 +23,38 @@ _pins() { # <rev for plugins> <rev for the flavor>: a package.toml in ya's layou
   printf '[[flavor.deps]]\nuse = "yazi-rs/flavors:catppuccin-mocha"\nrev = "%s"\nhash = "h-catppuccin-mocha-%s"\n' "$2" "$2"
 }
 
-setup() {
-  T=$BATS_TEST_TMPDIR
-  mkdir -p "$T/stub" "$T/bin" "$T/state" "$T/seed/stow/yazi/dot-config/yazi"
-  export GIT_CONFIG_GLOBAL="$T/gitconfig" GIT_CONFIG_NOSYSTEM=1
+# The origin, the host checkout, the default stub answers and the stubs are built
+# once. Each test copies the first three; the checkout's origin URL is the only
+# absolute path they hold, once the origin's own remote and the checkout's reflogs
+# are gone. The stubs find the test's directory through T.
+setup_file() {
+  local F=$BATS_FILE_TMPDIR
+  local B=$F/bin Y=$F/template
+  mkdir -p "$B" "$Y/stub" "$Y/state" "$F/seed/stow/yazi/dot-config/yazi"
+  export GIT_CONFIG_GLOBAL="$F/gitconfig" GIT_CONFIG_NOSYSTEM=1
   git config --file "$GIT_CONFIG_GLOBAL" user.name fixture
   git config --file "$GIT_CONFIG_GLOBAL" user.email fixture@example.com
   git config --file "$GIT_CONFIG_GLOBAL" commit.gpgsign false
   git config --file "$GIT_CONFIG_GLOBAL" core.hooksPath /dev/null
-  cp "$REPO_ROOT/stow/yazi/dot-config/yazi/"* "$T/seed/stow/yazi/dot-config/yazi/"
-  _pins aaaaaaa bbbbbbb >"$T/seed/stow/yazi/dot-config/yazi/package.toml"
-  git init -q -b dev "$T/seed"
-  git -C "$T/seed" add -A
-  git -C "$T/seed" commit -q -m seed
-  git clone -q --bare "$T/seed" "$T/origin.git"
-  git clone -q -b dev "$T/origin.git" "$T/checkout"
+  cp "$REPO_ROOT/stow/yazi/dot-config/yazi/"* "$F/seed/stow/yazi/dot-config/yazi/"
+  _pins aaaaaaa bbbbbbb >"$F/seed/stow/yazi/dot-config/yazi/package.toml"
+  git init -q -b dev "$F/seed"
+  git -C "$F/seed" add -A
+  git -C "$F/seed" commit -q -m seed
+  git clone -q --bare "$F/seed" "$Y/origin.git"
+  git --git-dir="$Y/origin.git" remote remove origin
+  git clone -q -b dev "$Y/origin.git" "$Y/checkout"
+  # The clone's reflogs name the path it cloned from, which a copy must not hold.
+  rm -rf "$Y/checkout/.git/logs"
 
   # Upstream: plugins reached ccccccc before the cutoff and ddddddd after it; the flavor has stayed at bbbbbbb.
   printf '%s\n' "2026-11-01T00:00:00Z dddddddddddddddddddddddddddddddddddddddd" \
-    "2026-10-20T00:00:00Z cccccccccccccccccccccccccccccccccccccccc" >"$T/stub/activity-yazi-rs_plugins"
-  echo "2026-09-29T00:00:00Z bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" >"$T/stub/activity-yazi-rs_flavors"
-  echo "green @head" >"$T/stub/ci-states"
+    "2026-10-20T00:00:00Z cccccccccccccccccccccccccccccccccccccccc" >"$Y/stub/activity-yazi-rs_plugins"
+  echo "2026-09-29T00:00:00Z bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" >"$Y/stub/activity-yazi-rs_flavors"
+  echo "green @head" >"$Y/stub/ci-states"
 
-  cat >"$T/bin/gh" <<EOF
+  cat >"$B/gh" <<'EOF'
 #!/usr/bin/env bash
-T="$T"
-EOF
-  cat >>"$T/bin/gh" <<'EOF'
 printf '%s\n' "$*" >>"$T/gh.log"
 head_sha() { git --git-dir="$T/origin.git" for-each-ref --format='%(objectname)' 'refs/heads/fix/*' | head -n 1; }
 case $1 in
@@ -87,11 +92,8 @@ case $1 in
     esac ;;
 esac
 EOF
-  cat >"$T/bin/ya" <<EOF
+  cat >"$B/ya" <<'EOF'
 #!/usr/bin/env bash
-T="$T"
-EOF
-  cat >>"$T/bin/ya" <<'EOF'
 printf '%s HOME=%s\n' "$*" "$HOME" >>"$T/ya.log"
 f=$HOME/.config/yazi/package.toml
 case $HOME in */yazi-pins.*) ;; *) exit 0 ;; esac
@@ -100,11 +102,8 @@ awk '/^use *=/ { u = $0; sub(/^use *= *"[^:]*:/, "", u); sub(/".*/, "", u) }
      /^hash *= *""/ { $0 = "hash = \"h-" u "-" r "\"" } { print }' "$f" >"$f.new"
 cat "$f.new" >"$f"
 EOF
-  cat >"$T/bin/check" <<EOF
+  cat >"$B/check" <<'EOF'
 #!/usr/bin/env bash
-T="$T"
-EOF
-  cat >>"$T/bin/check" <<'EOF'
 mkdir -p "$2"
 echo listing >"$2/listing.txt"
 echo tasks >"$2/tasks.txt"
@@ -115,14 +114,20 @@ for bad in $(cat "$T/stub/bad-revs" 2>/dev/null); do
 done
 echo ok
 EOF
-  printf '#!/bin/sh\nprintf "Yazi\\n    Version: 26.10.1 (Homebrew 2026-10-30)\\n"\n' >"$T/bin/yazi"
-  chmod +x "$T/bin/"*
-  export YAZI_PINS_STATE_DIR="$T/state" YAZI_PINS_CHECK_CMD="$T/bin/check" YAZI_PINS_POLL_S=0 YAZI_PINS_NOW=$NOW
+  printf '#!/bin/sh\nprintf "Yazi\\n    Version: 26.10.1 (Homebrew 2026-10-30)\\n"\n' >"$B/yazi"
+  chmod 555 "$B/"*
+}
+
+setup() {
+  export T=$BATS_TEST_TMPDIR
+  cp -R "$BATS_FILE_TMPDIR/template/." "$T/"
+  git -C "$T/checkout" remote set-url origin "$T/origin.git"
+  export YAZI_PINS_STATE_DIR="$T/state" YAZI_PINS_CHECK_CMD="$BATS_FILE_TMPDIR/bin/check" YAZI_PINS_POLL_S=0 YAZI_PINS_NOW=$NOW
 }
 
 _bump() {
   BUMP_STATUS=0
-  PATH="$T/bin:$PATH" "$BUMP" --base dev --repo "$T/origin.git" --gh-repo fixture/dotfiles --checkout "$T/checkout" "$@" \
+  PATH="$BATS_FILE_TMPDIR/bin:$PATH" "$BUMP" --base dev --repo "$T/origin.git" --gh-repo fixture/dotfiles --checkout "$T/checkout" "$@" \
     >"$T/bump.out" 2>"$T/bump.err" || BUMP_STATUS=$?
   BUMP_ERR=$(cat "$T/bump.err")
   OUT=$(tail -n 1 "$T/bump.out")

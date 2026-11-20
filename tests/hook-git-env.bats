@@ -14,59 +14,75 @@ bats_require_minimum_version 1.5.0
 REPO="$BATS_TEST_DIRNAME/.."
 GATES='lint-shell lint-workflows run-tests core-env-guard.sh'
 
-setup() {
+# The origin, the main clone and its linked worktree are built once and copied
+# per test. The copy's origin URL and the two worktree links are the only paths
+# into the template it holds; each probe finds its test through HOOK_FIX.
+setup_file() {
   # An inherited GIT_DIR outranks `-C`, so every git call below would retarget
   # whichever repo the caller was in. Git exports these to hooks, so a
   # hook-invoked run reaches this file with them set.
   unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
 
-  FIX="$BATS_TEST_TMPDIR"
-  ORIGIN="$FIX/origin.git"
-  MAIN="$FIX/main"
-  WT="$FIX/wt"
-  mkdir -p "$FIX/bin" "$FIX/children"
+  local fix="$BATS_FILE_TMPDIR/template" bin="$BATS_FILE_TMPDIR/bin" s t
+  local main="$fix/main" wt="$fix/wt"
+  mkdir -p "$bin"
 
   for t in shellcheck actionlint bats git-lfs; do
-    printf '#!/bin/sh\nexit 0\n' >"$FIX/bin/$t"
+    printf '#!/bin/sh\nexit 0\n' >"$bin/$t"
   done
   # The pre-commit gate refuses unsigned commits, so commits sign through a
   # stand-in gpg that reports the status line git waits for.
-  cat >"$FIX/bin/fake-gpg" <<'EOF'
+  cat >"$bin/fake-gpg" <<'EOF'
 #!/bin/sh
 cat >/dev/null
 printf '\n[GNUPG:] SIG_CREATED D 1 8 00 0 0\n' >&2
 printf -- '-----BEGIN PGP SIGNATURE-----\n\nstub\n-----END PGP SIGNATURE-----\n'
 EOF
-  chmod +x "$FIX"/bin/*
+  chmod 555 "$bin"/*
 
-  git init -q --bare "$ORIGIN"
-  git init -q -b dev "$MAIN"
-  git -C "$MAIN" config user.email test@example.com
-  git -C "$MAIN" config user.name test
-  git -C "$MAIN" config commit.gpgsign true
-  git -C "$MAIN" config gpg.format openpgp
-  git -C "$MAIN" config gpg.program "$FIX/bin/fake-gpg"
-  git -C "$MAIN" config user.signingkey test
-  git -C "$MAIN" config core.hooksPath /dev/null
+  git init -q --bare "$fix/origin.git"
+  git init -q -b dev "$main"
+  git -C "$main" config user.email test@example.com
+  git -C "$main" config user.name test
+  git -C "$main" config commit.gpgsign true
+  git -C "$main" config gpg.format openpgp
+  git -C "$main" config gpg.program "$bin/fake-gpg"
+  git -C "$main" config user.signingkey test
+  git -C "$main" config core.hooksPath /dev/null
 
-  mkdir -p "$MAIN/.githooks/lib" "$MAIN/scripts" "$MAIN/tests"
-  cp "$REPO/.githooks/pre-commit" "$REPO/.githooks/pre-push" "$MAIN/.githooks/"
-  cp "$REPO"/.githooks/lib/*.sh "$MAIN/.githooks/lib/"
+  mkdir -p "$main/.githooks/lib" "$main/scripts" "$main/tests"
+  cp "$REPO/.githooks/pre-commit" "$REPO/.githooks/pre-push" "$main/.githooks/"
+  cp "$REPO"/.githooks/lib/*.sh "$main/.githooks/lib/"
   for s in $GATES; do
-    _probe >"$MAIN/scripts/$s"
-    chmod +x "$MAIN/scripts/$s"
+    _probe >"$main/scripts/$s"
+    chmod +x "$main/scripts/$s"
   done
-  printf '#!/usr/bin/env bats\n' >"$MAIN/tests/t.bats"
-  printf '#!/bin/sh\necho a\n' >"$MAIN/a.sh"
-  git -C "$MAIN" add -A
-  git -C "$MAIN" commit -q -m seed
-  git -C "$MAIN" remote add origin "$ORIGIN"
-  git -C "$MAIN" push -q -u origin dev
+  printf '#!/usr/bin/env bats\n' >"$main/tests/t.bats"
+  printf '#!/bin/sh\necho a\n' >"$main/a.sh"
+  git -C "$main" add -A
+  git -C "$main" commit -q -m seed
+  git -C "$main" remote add origin "$fix/origin.git"
+  git -C "$main" push -q -u origin dev
 
-  git -C "$MAIN" worktree add -q -b feat/x "$WT"
-  printf '#!/bin/sh\necho b\n' >"$WT/b.sh"
-  git -C "$WT" add b.sh
-  git -C "$WT" commit -q -m 'add b.sh'
+  git -C "$main" worktree add -q -b feat/x "$wt"
+  printf '#!/bin/sh\necho b\n' >"$wt/b.sh"
+  git -C "$wt" add b.sh
+  git -C "$wt" commit -q -m 'add b.sh'
+}
+
+setup() {
+  unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_COMMON_DIR
+
+  FIX="$BATS_TEST_TMPDIR/fix"
+  ORIGIN="$FIX/origin.git"
+  MAIN="$FIX/main"
+  WT="$FIX/wt"
+  export HOOK_FIX="$FIX"
+  cp -R "$BATS_FILE_TMPDIR/template" "$FIX"
+  mkdir "$FIX/children"
+  git -C "$MAIN" remote set-url origin "$ORIGIN"
+  printf 'gitdir: %s\n' "$MAIN/.git/worktrees/wt" >"$WT/.git"
+  printf '%s\n' "$WT/.git" >"$MAIN/.git/worktrees/wt/gitdir"
 }
 
 # A gate script stand-in. It records its name and arguments, then creates a
@@ -76,8 +92,8 @@ EOF
 _probe() {
   cat <<EOF
 #!/bin/sh
-printf '%s %s\n' "\${0##*/}" "\$*" >>"$FIX/probe.log"
-d=\$(mktemp -d "$FIX/children/repo.XXXXXX")
+printf '%s %s\n' "\${0##*/}" "\$*" >>"\$HOOK_FIX/probe.log"
+d=\$(mktemp -d "\$HOOK_FIX/children/repo.XXXXXX")
 git -C "\$d" init -q
 echo x >"\$d/x"
 git -C "\$d" add x
@@ -92,7 +108,7 @@ enable_hooks() {
 
 # git with the stub tools first on PATH, so every gate the hooks look for runs.
 hooked_git() {
-  PATH="$FIX/bin:$PATH" git "$@"
+  PATH="$BATS_FILE_TMPDIR/bin:$PATH" git "$@"
 }
 
 # Every repository a probe created holds the probe's commit, and at least one
