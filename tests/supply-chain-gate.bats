@@ -49,6 +49,25 @@ _sourced_var() {
   bash -c "source '$SUPPLY_CHAIN_SH' >/dev/null 2>&1; printf '%s' \"\$${1}\""
 }
 
+# Echo npm_config_min_release_age as supply-chain.sh sets it when a fake npm
+# prefix leads PATH. $1 is the body of that prefix's package.json (no file when
+# empty); $2 is what its `npm --version` prints, and running it leaves
+# $BATS_TEST_TMPDIR/npm-ran behind. The variable is dropped from the environment
+# first, so a value inherited from a deployed shell cannot stand in for the one
+# the script sets.
+_age_with_fake_npm() {
+  local prefix="$BATS_TEST_TMPDIR/prefix"
+  mkdir -p "$prefix/bin"
+  printf '#!/bin/sh\n: >"%s/npm-ran"\necho "%s"\n' "$BATS_TEST_TMPDIR" "$2" >"$prefix/bin/npm"
+  chmod +x "$prefix/bin/npm"
+  if [ -n "$1" ]; then
+    mkdir -p "$prefix/lib/node_modules/npm"
+    printf '%s\n' "$1" >"$prefix/lib/node_modules/npm/package.json"
+  fi
+  env -u npm_config_min_release_age PATH="$prefix/bin:$PATH" \
+    bash -c "source '$SUPPLY_CHAIN_SH' >/dev/null 2>&1; printf '%s' \"\$npm_config_min_release_age\""
+}
+
 # Run a command with supply-chain.sh's settings exported, so a gate probe checks
 # the shipped config on any host, deployed or not.
 _with_gate() {
@@ -162,6 +181,37 @@ _require_version() {
   _require_version "$(npm --version 2>/dev/null)" "11.10.0" "npm" "brew upgrade node"
   local v
   v=$(_sourced_var npm_config_min_release_age)
+  [ "$v" = "$COOLDOWN_DAYS" ] || {
+    echo "got: $v"
+    return 1
+  }
+}
+
+@test "npm: the version comes from the layout's package.json, without starting npm" {
+  local v
+  v=$(_age_with_fake_npm $'{\n  "name": "npm",\n  "version": "11.10.0",\n  "description": "d"\n}' "10.0.0")
+  [ "$v" = "$COOLDOWN_DAYS" ] || {
+    echo "got: $v"
+    return 1
+  }
+  [ ! -e "$BATS_TEST_TMPDIR/npm-ran" ] || {
+    echo "npm was started"
+    return 1
+  }
+}
+
+@test "npm: a layout with no package.json falls back to npm --version" {
+  local v
+  v=$(_age_with_fake_npm "" "11.10.0")
+  [ "$v" = "$COOLDOWN_DAYS" ] || {
+    echo "got: $v"
+    return 1
+  }
+}
+
+@test "npm: a package.json with no version line falls back to npm --version" {
+  local v
+  v=$(_age_with_fake_npm '{"name":"npm","version":"10.0.0"}' "11.10.0")
   [ "$v" = "$COOLDOWN_DAYS" ] || {
     echo "got: $v"
     return 1

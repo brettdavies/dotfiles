@@ -11,15 +11,18 @@
 if [ -n "${BASH_VERSION-}" ]; then
     # BASH_SOURCE doesn't resolve symlinks — follow the link manually. Gated on
     # BASH_VERSION because evaluating the subscript at all is fatal in dash.
+    # A bare file name gets a "./" so every path here holds a slash and
+    # ${path%/*} stands in for dirname without starting a process.
     _PROFILE_REAL="${BASH_SOURCE[0]}"
+    case "$_PROFILE_REAL" in */*) ;; *) _PROFILE_REAL="./$_PROFILE_REAL" ;; esac
     if [ -L "$_PROFILE_REAL" ]; then
-        _PROFILE_REAL=$(readlink "$_PROFILE_REAL")
-        case "$_PROFILE_REAL" in
-            /*) ;;
-            *) _PROFILE_REAL="$(dirname "${BASH_SOURCE[0]}")/$_PROFILE_REAL" ;;
+        _PROFILE_LINK=$(readlink "$_PROFILE_REAL")
+        case "$_PROFILE_LINK" in
+            /*) _PROFILE_REAL=$_PROFILE_LINK ;;
+            *) _PROFILE_REAL="${_PROFILE_REAL%/*}/$_PROFILE_LINK" ;;
         esac
     fi
-    _DOTFILES_ROOT="$(cd "$(dirname "$_PROFILE_REAL")/../.." && pwd)"
+    _DOTFILES_ROOT="$(cd "${_PROFILE_REAL%/*}/../.." && pwd)"
 elif [ -L "$HOME/.profile" ]; then
     # Zsh, dash, and other shells: resolve the ~/.profile symlink
     _PROFILE_SOURCE=$(readlink "$HOME/.profile")
@@ -27,7 +30,7 @@ elif [ -L "$HOME/.profile" ]; then
         /*) ;;
         *) _PROFILE_SOURCE="$HOME/$_PROFILE_SOURCE" ;;
     esac
-    _DOTFILES_ROOT="$(cd "$(dirname "$_PROFILE_SOURCE")/../.." && pwd)"
+    _DOTFILES_ROOT="$(cd "${_PROFILE_SOURCE%/*}/../.." && pwd)"
 else
     _DOTFILES_ROOT=""
 fi
@@ -40,7 +43,7 @@ _CONFIG_DIR="$_DOTFILES_ROOT/config/shell"
 # shellcheck disable=SC2034  # used by .zshenv, .zshrc, .bashrc
 DOTFILES_SHELL_DIR="$_CONFIG_DIR"
 
-unset _PROFILE_REAL _PROFILE_SOURCE
+unset _PROFILE_REAL _PROFILE_LINK _PROFILE_SOURCE
 
 # Initialize Homebrew/Linuxbrew shell environment
 # Must come before ~/.secrets because secrets use `op read` from Homebrew PATH
