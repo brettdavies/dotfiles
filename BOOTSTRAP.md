@@ -309,6 +309,18 @@ bash ~/dotfiles/scripts/rectangle-defaults.sh
 Hotkeys after setup: `⌃⌥←/→/↑/↓` for halves, `⌃⌥U/I/J/K` for quarters, `⌃⌥↵` maximize, `⌃⌥⌫` restore previous size.
 Repeat the same arrow to cycle 1/2 → 2/3 → 1/3 width.
 
+### Rex app preferences
+
+The defaults script applies the Rex app preferences: MesloLGSDZ Nerd Font Mono at 12 pt, ligatures off, font smoothing
+on, Display P3 off, a yellow edge on the focused pane, and inactive panes faded. Rex reads them at launch.
+
+```bash
+bash ~/dotfiles/scripts/rex-defaults.sh   # idempotent; quit and reopen Rex afterwards
+```
+
+Rex has no setting to tint unfocused panes. `config/shell/rex-focus-tint.zsh`, sourced from `.zshrc`, paints a pane dark
+amber while it is unfocused and zsh sits at the prompt.
+
 ### cswap auto-switching (launchd)
 
 The `launchagent` package ships `com.user.cswap-auto.plist`, which runs the same minutely check as the Linux timer.
