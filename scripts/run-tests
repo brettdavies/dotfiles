@@ -70,6 +70,12 @@
 # perf suite is timed by design and exempt. bats prints each test's time on its
 # line, since it times every test for the junit report the check reads.
 #
+# Every bats run gets git's gpg.ssh.program pointed at tests/lib/signing-guard
+# through GIT_CONFIG_COUNT, which outranks every config file, so a test that
+# signs fails at once instead of signing with the real key through 1Password.
+# A test that needs a signature passes -c gpg.ssh.program=<stub>, which
+# outranks it.
+#
 # The split modes exist so .githooks/pre-push can hold the machine quiet for
 # the perf suite and then overlap the main suite with its lint gates.
 #
@@ -169,6 +175,7 @@ fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COST_GUARD="$REPO_ROOT/scripts/test-cost-guard.sh"
+SIGNING_GUARD="$REPO_ROOT/tests/lib/signing-guard"
 cd "$REPO_ROOT"
 # shellcheck source=tests/lib/processes.bash
 source "$REPO_ROOT/tests/lib/processes.bash"
@@ -196,10 +203,11 @@ source "$REPO_ROOT/tests/lib/processes.bash"
 #
 # Returns 1 when bats failed, 2 when only the leak check failed, 3 when both did.
 _bats_run() {
-  local run="$$.$BASHPID.$RANDOM" rc=0
+  local run="$$.$BASHPID.$RANDOM" rc=0 n=${GIT_CONFIG_COUNT:-0}
   # shellcheck disable=SC2016 # the $SIG and $ARGV in single quotes are perl's
   env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
     -u GIT_PREFIX -u GIT_OBJECT_DIRECTORY -u GIT_ALTERNATE_OBJECT_DIRECTORIES -u GIT_NAMESPACE \
+    GIT_CONFIG_COUNT=$((n + 1)) "GIT_CONFIG_KEY_$n=gpg.ssh.program" "GIT_CONFIG_VALUE_$n=$SIGNING_GUARD" \
     RUN_TESTS_RUN="$run" BATS_TEST_TIMEOUT="$TEST_TIMEOUT" BATS_killer_pid="$BATS_WATCHDOG_JOB" \
     "$PERL" -e '$SIG{INT} = $SIG{QUIT} = "DEFAULT"; exec @ARGV or die "run-tests: exec $ARGV[0]: $!\n"' \
     bats "${BATS_FLAGS[@]}" "$@" || rc=1

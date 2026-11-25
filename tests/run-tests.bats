@@ -39,6 +39,7 @@ _sandbox() {
   cp "$SCRIPT" "$SANDBOX/scripts/run-tests"
   cp "$BATS_TEST_DIRNAME/lib/processes.bash" "$SANDBOX/tests/lib/"
   cp "$BATS_TEST_DIRNAME/../scripts/test-cost-guard.sh" "$SANDBOX/scripts/"
+  cp "$BATS_TEST_DIRNAME/lib/signing-guard" "$SANDBOX/tests/lib/"
 }
 
 # _probe <path> <name> <assertion>
@@ -806,4 +807,37 @@ _default_budget() {
   [ "$status" -eq 1 ]
   [[ "$output" == *"tests/a.bats:2: true || fixture_repo"* ]]
   [[ "$output" == *"ok 1 b probe"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Signing
+# ---------------------------------------------------------------------------
+
+# The probe's repository names a recorder as its signer, so a run without the
+# guard signs through the recorder, never through the real key. The caller
+# brings a GIT_CONFIG_COUNT of its own, which the guard is added to, not set over.
+@test "a test that signs fails at the signing guard, past its repository's own signer and the caller's own GIT_CONFIG_COUNT" {
+  _sandbox
+  cat >"$SANDBOX/tests/a.bats" <<'EOF'
+@test "signing probe" {
+  d=$BATS_TEST_TMPDIR/r
+  git init -q "$d"
+  printf '#!/bin/sh\ntouch "$SIGNED"\n' >"$BATS_TEST_TMPDIR/recorder"
+  chmod +x "$BATS_TEST_TMPDIR/recorder"
+  git -C "$d" config gpg.format ssh
+  git -C "$d" config gpg.ssh.program "$BATS_TEST_TMPDIR/recorder"
+  git -C "$d" config user.signingkey "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGuardProbeKey"
+  export SIGNED=$BATS_TEST_TMPDIR/signed
+  [ "$(git config guard.caller)" = kept ]
+  run git -C "$d" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -S -m x
+  echo "$output"
+  [[ "$output" == *"run-tests: a test tried to sign"* ]]
+  [ ! -e "$SIGNED" ]
+}
+EOF
+  # This suite's own run-tests passes its guard down in GIT_CONFIG_COUNT; the caller's entry replaces it, so the sandbox's guard is the one under test.
+  run env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=guard.caller GIT_CONFIG_VALUE_0=kept "$SANDBOX/scripts/run-tests" tests/a.bats
+  echo "$output"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ok 1 signing probe"* ]]
 }

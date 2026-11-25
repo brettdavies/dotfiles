@@ -116,7 +116,9 @@ setup() {
 }
 
 @test "git signing program is op-ssh-sign-wrapper" {
-  program=$(git config --get gpg.ssh.program 2>/dev/null || true)
+  # The global file, not the effective value: run-tests points gpg.ssh.program
+  # at its signing guard for every test.
+  program=$(git config --global --get gpg.ssh.program 2>/dev/null || true)
   [ "$program" = "op-ssh-sign-wrapper" ]
 }
 
