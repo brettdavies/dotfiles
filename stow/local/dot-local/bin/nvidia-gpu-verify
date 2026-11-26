@@ -1,0 +1,392 @@
+#!/usr/bin/env bash
+# nvidia-gpu-verify - prove the NVIDIA driver's userspace matches the loaded
+# kernel module, and that its encode, decode, and Vulkan paths answer.
+#
+# Ubuntu ships the -server driver's add-on libraries as separate packages, and
+# their plain names (libnvidia-encode-580) resolve to the non-server build,
+# which conflicts with the -server userspace and removes it. The check reads
+# the branch and version from the loaded module, so it holds for any branch
+# with no configuration, and a userspace upgrade that awaits a reboot shows up
+# as a version difference.
+#
+# Linux checks (each prints PASS, FAIL, or SKIP; a FAIL is followed by a
+# `next:` command):
+#   1. the kernel module is loaded
+#   2. nvidia-utils, libnvidia-compute, libnvidia-gl, libnvidia-encode, and
+#      libnvidia-decode are installed as -<branch>-server at the module's
+#      version
+#   3. NVENC: NvEncodeAPIGetMaxSupportedVersion answers, and the API version
+#      it prints decides which ffmpeg builds can encode
+#   4. NVDEC: cuvidGetDecoderCaps answers for H.264, HEVC, and AV1
+#   5. Vulkan: vulkaninfo lists the NVIDIA device at the module's version
+#   6. apt guard: apt offers no candidate for the non-server encode library
+#
+# Steps 3 and 4 open no encode or decode session, so they never take one of a
+# GeForce card's capped NVENC sessions from an encode that is running. Steps 3
+# to 5 run under a 30 s timeout, because cuInit and vulkaninfo can hang on a
+# GPU wedged after an Xid error.
+#
+# Exit 0 when nothing failed, and on macOS or a Linux host with no NVIDIA
+# driver; 1 when a check failed; 2 on a usage error.
+#
+# Env: NVIDIA_GPU_VERIFY_PROC_VERSION  file naming the loaded module (default
+#      /proc/driver/nvidia/version). tests/nvidia-gpu-verify.bats points it at
+#      a fixture.
+set -uo pipefail
+
+PROG=nvidia-gpu-verify
+PROC_VERSION="${NVIDIA_GPU_VERIFY_PROC_VERSION:-/proc/driver/nvidia/version}"
+DEPLOY_CMD='sudo ~/dotfiles/scripts/nvidia-deploy.sh'
+# dkms status needs no root, and the full path reaches it from a PATH without
+# /usr/sbin, as an agent slot's is.
+DKMS_CMD='/usr/sbin/dkms status nvidia'
+TIMEOUT_S=30
+ADDONS=(nvidia-utils libnvidia-compute libnvidia-gl libnvidia-encode libnvidia-decode)
+
+usage() {
+  cat <<EOF
+usage: $PROG [-h | --help]
+
+Check that the NVIDIA -server userspace matches the loaded kernel module, that
+NVENC, NVDEC, and Vulkan answer through the driver, and that the apt guard
+against the non-server packages is in effect. The check is read-only and opens
+no encode or decode session. Each FAIL is followed by a next: command that is
+safe to paste; one that starts with sudo needs root, so an agent without it
+hands that line to the operator. Exit 0 when nothing failed, 1 when a check
+failed, 2 on a usage error.
+EOF
+}
+
+case "$#:${1:-}" in
+  0:) ;;
+  1:-h | 1:--help)
+    usage
+    exit 0
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac
+
+failures=()
+pin_version=""
+
+pass() { printf 'PASS  %s\n' "$1"; }
+fail() {
+  printf 'FAIL  %s\n' "$1"
+  printf '      next: %s\n' "$2"
+  failures+=("$1")
+}
+skip() { printf 'SKIP  %s\n' "$1"; }
+note() { printf 'NOTE  %s\n' "$1"; }
+
+finish() {
+  echo
+  if [ "${#failures[@]}" -eq 0 ]; then
+    echo "$PROG: all checks passed"
+    exit 0
+  fi
+  echo "$PROG: ${#failures[@]} check(s) failed:"
+  printf '  - %s\n' "${failures[@]}"
+  exit 1
+}
+
+# Set pkg_status ("ii" when installed) and pkg_version for a package; both are
+# empty when dpkg does not know it. ${db:Status-Abbrev} is three characters,
+# "ii" and a space, so read splits the line rather than a fixed offset.
+pkg_lookup() {
+  pkg_status="" pkg_version=""
+  read -r pkg_status pkg_version < <(dpkg-query -W -f='${db:Status-Abbrev} ${Version}\n' "$1" 2>/dev/null) || true
+}
+
+# The Debian version's upstream part: 580.178.04-0ubuntu0.24.04.1 -> 580.178.04
+upstream() { printf '%s\n' "${1%%-*}"; }
+
+pkg_installed() {
+  pkg_lookup "$1"
+  [ "$pkg_status" = ii ]
+}
+
+# The upstream versions of every installed -server NVIDIA userspace package,
+# of any branch, one per line.
+server_userspace_versions() {
+  local name status pkg ver
+  local -a patterns=('nvidia-kernel-common-*-server')
+  for name in "${ADDONS[@]}"; do
+    patterns+=("$name-*-server")
+  done
+  dpkg-query -W -f='${db:Status-Abbrev} ${Package} ${Version}\n' "${patterns[@]}" 2>/dev/null |
+    while read -r status pkg ver; do
+      [ "$status" = ii ] && upstream "$ver"
+    done | sort -u
+}
+
+# The fix for a missing or mismatched package pins the Debian version a package
+# of the branch already holds at the loaded version, so apt never resolves it
+# to the non-server build. With no such package, the fix is to look first.
+fix_cmd() {
+  if [ -n "$pin_version" ]; then
+    printf 'sudo NEEDRESTART_MODE=l apt-get install "%s=%s"' "$1" "$pin_version"
+  else
+    printf 'apt-cache policy %s' "$1"
+  fi
+}
+
+# The NVENC and NVDEC probes. Each prints one line: "<engine> ok ..." or
+# "<engine> <failure> <reason>".
+read -r -d '' PROBE <<'PY'
+import ctypes
+
+def nvenc():
+    try:
+        lib = ctypes.CDLL("libnvidia-encode.so.1")
+    except OSError as e:
+        return f"nvenc load-failed {e}"
+    v = ctypes.c_uint32(0)
+    rc = lib.NvEncodeAPIGetMaxSupportedVersion(ctypes.byref(v))
+    if rc != 0:
+        return f"nvenc query-failed NVENCSTATUS={rc}"
+    return f"nvenc ok {v.value >> 4}.{v.value & 0xF}"
+
+# cuvidGetDecoderCaps takes a CUVIDDECODECAPS: eCodecType at byte 0,
+# eChromaFormat at 4, bIsSupported at 24, nMaxWidth at 28 (nvcuvid.h).
+CODECS = (("h264", 4), ("hevc", 8), ("av1", 11))
+
+def cuda_error(cuda, rc):
+    name = ctypes.c_char_p()
+    if cuda.cuGetErrorName(rc, ctypes.byref(name)) == 0 and name.value:
+        return name.value.decode()
+    return str(rc)
+
+def nvdec():
+    try:
+        cuda = ctypes.CDLL("libcuda.so.1")
+        cuvid = ctypes.CDLL("libnvcuvid.so.1")
+    except OSError as e:
+        return f"nvdec load-failed {e}"
+    dev = ctypes.c_int(0)
+    ctx = ctypes.c_void_p()
+    steps = (
+        ("cuInit", lambda: cuda.cuInit(0)),
+        ("cuDeviceGet", lambda: cuda.cuDeviceGet(ctypes.byref(dev), 0)),
+        ("cuDevicePrimaryCtxRetain", lambda: cuda.cuDevicePrimaryCtxRetain(ctypes.byref(ctx), dev)),
+        ("cuCtxSetCurrent", lambda: cuda.cuCtxSetCurrent(ctx)),
+    )
+    for name, call in steps:
+        rc = call()
+        if rc != 0:
+            return f"nvdec cuda-failed {name}={cuda_error(cuda, rc)}"
+    out = []
+    try:
+        for label, codec in CODECS:
+            caps = (ctypes.c_ubyte * 128)()
+            ctypes.c_uint32.from_buffer(caps, 0).value = codec
+            ctypes.c_uint32.from_buffer(caps, 4).value = 1
+            rc = cuvid.cuvidGetDecoderCaps(ctypes.byref(caps))
+            if rc != 0:
+                return f"nvdec query-failed cuvidGetDecoderCaps({label})={cuda_error(cuda, rc)}"
+            width = ctypes.c_uint32.from_buffer(caps, 28).value
+            out.append(f"{label}={'yes' if caps[24] else 'no'}/{width}")
+    finally:
+        cuda.cuDevicePrimaryCtxRelease(dev)
+    return "nvdec ok " + " ".join(out)
+
+print(nvenc())
+print(nvdec())
+PY
+
+# Returns 1 when no package of the loaded branch is at the loaded version but
+# other -server userspace is installed, so the probes would test a userspace
+# the module does not match.
+verify_packages() {
+  local branch="$1" version="$2" name pkg entry others
+  local -a missing=() other=()
+
+  for name in nvidia-kernel-common "${ADDONS[@]}"; do
+    pkg_lookup "$name-$branch-server"
+    if [ "$pkg_status" = ii ] && [ "$(upstream "$pkg_version")" = "$version" ]; then
+      pin_version="$pkg_version"
+      break
+    fi
+  done
+
+  # Either an upgrade or a branch change awaits a reboot, or another branch's
+  # package (nvidia-fabricmanager-615, libnvidia-encode-615-server) replaced
+  # this branch. An install line could undo a branch change, and a reboot
+  # after the branch trap comes up with no module, so the fix is to look at
+  # which module DKMS built.
+  if [ -z "$pin_version" ]; then
+    others="$(server_userspace_versions | paste -sd ' ' -)"
+    if [ -n "$others" ]; then
+      fail "no -$branch-server package is at the loaded module's version $version; the installed -server userspace is at $others: a reboot is pending, or another branch's package replaced this one" \
+        "$DKMS_CMD"
+      return 1
+    fi
+  fi
+
+  for name in "${ADDONS[@]}"; do
+    pkg="$name-$branch-server"
+    pkg_lookup "$pkg"
+    if [ "$pkg_status" != ii ]; then
+      missing+=("$pkg")
+    elif [ "$(upstream "$pkg_version")" != "$version" ]; then
+      other+=("$pkg $pkg_version")
+    else
+      pass "$pkg $pkg_version"
+    fi
+  done
+
+  for pkg in "${missing[@]}"; do
+    fail "$pkg is not installed" "$(fix_cmd "$pkg")"
+  done
+  for entry in "${other[@]}"; do
+    pkg="${entry%% *}"
+    fail "$pkg is ${entry#* } and the loaded module is $version" "$(fix_cmd "$pkg")"
+  done
+  return 0
+}
+
+# The probe's answer for one engine, or its last line of output when it gave
+# none (a traceback, for one), so every FAIL stays one line.
+probe_failure() {
+  local engine_line="$1" out="$2" last
+  if [ -n "$engine_line" ]; then
+    printf '%s\n' "$engine_line"
+    return
+  fi
+  last="$(printf '%s\n' "$out" | awk 'NF { line = $0 } END { print line }')"
+  printf 'no answer from the probe: %s\n' "${last:-no output}"
+}
+
+verify_probes() {
+  local branch="$1" out rc line nvenc_line="" nvdec_line="" api lib_hint
+  if ! command -v python3 >/dev/null 2>&1; then
+    fail "python3 not found; NVENC and NVDEC cannot be probed" "sudo apt-get install python3"
+    return
+  fi
+  out="$(timeout "$TIMEOUT_S" python3 -I -B -c "$PROBE" 2>&1)"
+  rc=$?
+  if [ "$rc" -eq 124 ]; then
+    fail "the NVENC and NVDEC probe did not finish within $TIMEOUT_S s; the GPU may be wedged" "nvidia-smi"
+    return
+  fi
+  while IFS= read -r line; do
+    case "$line" in
+      "nvenc "*) nvenc_line="$line" ;;
+      "nvdec "*) nvdec_line="$line" ;;
+    esac
+  done <<<"$out"
+
+  case "$nvenc_line" in
+    "nvenc ok "*)
+      api="${nvenc_line#nvenc ok }"
+      pass "NVENC answers: API $api; ffmpeg built against nv-codec-headers $api or older can encode"
+      ;;
+    *)
+      lib_hint="ldconfig -p | grep libnvidia-encode"
+      pkg_installed "libnvidia-encode-$branch-server" ||
+        lib_hint="$(fix_cmd "libnvidia-encode-$branch-server")"
+      fail "NVENC does not answer: $(probe_failure "$nvenc_line" "$out")" "$lib_hint"
+      ;;
+  esac
+
+  case "$nvdec_line" in
+    "nvdec ok "*)
+      pass "NVDEC answers: ${nvdec_line#nvdec ok } (supported/max width)"
+      ;;
+    "nvdec cuda-failed "*)
+      fail "NVDEC does not answer: $nvdec_line" "nvidia-smi"
+      ;;
+    *)
+      lib_hint="ldconfig -p | grep libnvcuvid"
+      pkg_installed "libnvidia-decode-$branch-server" ||
+        lib_hint="$(fix_cmd "libnvidia-decode-$branch-server")"
+      fail "NVDEC does not answer: $(probe_failure "$nvdec_line" "$out")" "$lib_hint"
+      ;;
+  esac
+}
+
+verify_vulkan() {
+  local version="$1" summary rc found
+  summary="$(timeout "$TIMEOUT_S" vulkaninfo --summary 2>/dev/null)"
+  rc=$?
+  if [ "$rc" -eq 127 ]; then
+    skip "vulkaninfo not found (package vulkan-tools); Vulkan not checked"
+    return
+  fi
+  if [ "$rc" -eq 124 ]; then
+    fail "vulkaninfo did not finish within $TIMEOUT_S s; the GPU may be wedged" "nvidia-smi"
+    return
+  fi
+  found="$(printf '%s\n' "$summary" | awk -v want="$version" '
+    /^GPU[0-9]+:/ { name = ""; info = "" }
+    $1 == "driverName" { name = $3 }
+    $1 == "driverInfo" { info = $3; if (name == "NVIDIA" && info == want) { print "yes"; exit } }
+  ')"
+  if [ "$found" = yes ]; then
+    pass "Vulkan lists the NVIDIA device at $version"
+  else
+    fail "Vulkan lists no NVIDIA device at $version" "vulkaninfo --summary"
+  fi
+}
+
+# A canary the guard blocks has no candidate. apt knows the versioned name only
+# from a configured repository that ships the non-server branch, and the
+# unversioned one only from NVIDIA's CUDA repository.
+verify_guard() {
+  local branch="$1" pkg policy candidate known=0
+  for pkg in "libnvidia-encode-$branch" libnvidia-encode; do
+    policy="$(apt-cache policy "$pkg" 2>/dev/null)"
+    [ -n "$policy" ] || continue
+    known=1
+    candidate="$(printf '%s\n' "$policy" | awk '$1 == "Candidate:" { print $2; exit }')"
+    if [ "$candidate" != "(none)" ]; then
+      fail "apt offers $pkg $candidate, which removes the -server driver" "$DEPLOY_CMD"
+      return
+    fi
+  done
+  if [ "$known" -eq 0 ]; then
+    skip "apt knows no non-server encode package; the guard has nothing to block"
+  else
+    pass "apt guard in effect: no candidate for libnvidia-encode-$branch or libnvidia-encode"
+  fi
+}
+
+verify_linux() {
+  local branch version
+  if [ ! -r "$PROC_VERSION" ]; then
+    if dpkg-query -W -f='${db:Status-Abbrev}\n' 'nvidia-kernel-common-*-server' 2>/dev/null | grep -q '^ii'; then
+      fail "the NVIDIA driver is installed but its kernel module is not loaded" "$DKMS_CMD"
+      finish
+    fi
+    note "no NVIDIA driver on this host; nothing to check"
+    exit 0
+  fi
+  version="$(awk 'NR == 1 { for (i = 1; i <= NF; i++) if ($i ~ /^[0-9]+\.[0-9]+(\.[0-9]+)?$/) { print $i; exit } }' "$PROC_VERSION")"
+  if [ -z "$version" ]; then
+    fail "no driver version in $PROC_VERSION" "cat $PROC_VERSION"
+    finish
+  fi
+  branch="${version%%.*}"
+  pass "kernel module $version loaded (branch $branch)"
+
+  if verify_packages "$branch" "$version"; then
+    verify_probes "$branch"
+    verify_vulkan "$version"
+  else
+    skip "NVENC not probed: the userspace does not match the loaded module"
+    skip "NVDEC not probed: the userspace does not match the loaded module"
+    skip "Vulkan not checked: the userspace does not match the loaded module"
+  fi
+  verify_guard "$branch"
+  finish
+}
+
+case "$(uname -s)" in
+  Linux) verify_linux ;;
+  *)
+    note "the NVIDIA driver check is Linux-only; nothing to check on $(uname -s)"
+    exit 0
+    ;;
+esac
