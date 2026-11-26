@@ -26,8 +26,10 @@ HOST_JOBS=(
   "$LOCAL_UNITS/agent-slot-sweep"
   "$LOCAL_UNITS/agent-slot-reconcile"
   "$LOCAL_UNITS/skill-listing-refresh"
+  "$LOCAL_UNITS/agent-slot-save"
 )
 RECONCILE="$LOCAL_UNITS/agent-slot-reconcile"
+SAVE="$LOCAL_UNITS/agent-slot-save"
 
 setup() {
   STUBS="$BATS_TEST_TMPDIR/stubs"
@@ -193,6 +195,52 @@ EOF
   [ "$(_unit_key "$REX_SERVER" Unit StartLimitIntervalSec)" = 0 ]
 }
 
+@test "the Rex server unit stops and survives an OOM kill as the Rex package's own user unit does" {
+  local pkg=/usr/lib/systemd/user/rex.service key
+  [ "$(_unit_key "$REX_SERVER" Service KillMode)" = mixed ]
+  [ "$(_unit_key "$REX_SERVER" Service OOMPolicy)" = continue ]
+  [ "$(_unit_key "$REX_SERVER" Service Delegate)" = yes ]
+  [ "$(_unit_key "$REX_SERVER" Service DelegateSubgroup)" = server ]
+  [ "$(_unit_key "$REX_SERVER" Service Environment)" = REX_CGROUP_DELEGATED=1 ]
+  [ -r "$pkg" ] || return 0
+  for key in KillMode OOMPolicy Delegate DelegateSubgroup; do
+    [ "$(_unit_key "$REX_SERVER" Service "$key")" = "$(_unit_key "$pkg" Service "$key")" ]
+  done
+  _unit_key "$pkg" Service Environment | grep -qx REX_CGROUP_DELEGATED=1
+}
+
+@test "a stop of the Rex server saves the operator's tabs first, unless the user manager answers that it is stopping" {
+  local line script home=$BATS_TEST_TMPDIR/home bin=$BATS_TEST_TMPDIR/bin saves=$BATS_TEST_TMPDIR/saves
+  line=$(_unit_key "$REX_SERVER" Service ExecStop)
+  [[ $line == "-/bin/sh -c '"*"'" ]]
+  script=${line#"-/bin/sh -c '"}
+  script=${script%"'"}
+  script=${script//'$$'/'$'}
+  script=${script//%h/$home}
+  script=${script//\/usr\/bin\/systemctl/$bin/systemctl}
+  script=${script//\/usr\/bin\/timeout/$bin/timeout}
+  mkdir -p "$home/.local/bin" "$bin"
+  printf '#!/bin/sh\necho "$*" >>"%s"\n' "$saves" >"$home/.local/bin/agent-slot-rex"
+  printf '#!/bin/sh\n[ "$*" = "--user is-system-running" ] && echo "$STUB_MANAGER_STATE"\n' >"$bin/systemctl"
+  printf '#!/bin/sh\n[ -z "$STUB_TIMED_OUT" ] || exit 124\nshift\nexec "$@"\n' >"$bin/timeout"
+  chmod 755 "$home/.local/bin/agent-slot-rex" "$bin/systemctl" "$bin/timeout"
+  STUB_MANAGER_STATE=degraded sh -c "$script"
+  [ "$(cat "$saves")" = "save --output json" ]
+  : >"$saves"
+  STUB_MANAGER_STATE=stopping sh -c "$script"
+  [ ! -s "$saves" ]
+  STUB_MANAGER_STATE=stopping STUB_TIMED_OUT=1 sh -c "$script"
+  [ "$(cat "$saves")" = "save --output json" ]
+}
+
+@test "the save service gives up on a save that outlasts the timer's interval" {
+  [ "$(_unit_key "$SAVE.service" Service TimeoutStartSec)" = 2min ]
+}
+
+@test "a timer save that would start while the Rex server stops waits for the stop to finish" {
+  [ "$(_unit_key "$SAVE.service" Unit After)" = rex-server.service ]
+}
+
 @test "the Rex server unit sets no sandboxing, which every program its tabs run would inherit" {
   run grep -nE '^(PrivateTmp|ProtectHome|PrivateDevices|NoNewPrivileges)=' "$REX_SERVER"
   [ "$status" -eq 1 ]
@@ -232,6 +280,23 @@ EOF
   run env XDG_RUNTIME_DIR="$runtime" systemd-analyze --user verify "$RECONCILE.service" "$RECONCILE.timer"
   [ "$status" -eq 0 ]
   [[ $output != *"agent-slot-reconcile."* ]]
+}
+
+@test "the save timer runs the helper's save every 2 minutes, with no sandboxing" {
+  [ "$(_unit_key "$SAVE.service" Service ExecStart)" = '%h/.local/bin/agent-slot-rex save --output json' ]
+  [ "$(_unit_key "$SAVE.timer" Timer OnCalendar)" = '*:0/2' ]
+  run grep -nE '^(PrivateTmp|ProtectHome|PrivateDevices|NoNewPrivileges)=' "$SAVE.service"
+  [ "$status" -eq 1 ]
+}
+
+@test "systemd accepts the save units" {
+  command -v systemd-analyze >/dev/null 2>&1 || skip "systemd-analyze not installed"
+  [ -x "$HOME/.local/bin/agent-slot-rex" ] || skip "agent-slot-rex not deployed"
+  local runtime=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+  [ -d "$runtime" ] || skip "no user runtime directory"
+  run env XDG_RUNTIME_DIR="$runtime" systemd-analyze --user verify "$SAVE.service" "$SAVE.timer"
+  [ "$status" -eq 0 ]
+  [[ $output != *"agent-slot-save."* ]]
 }
 
 @test "the tab-number watcher runs with the Rex server, restarting every 5 s with no start limit" {

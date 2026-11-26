@@ -63,6 +63,7 @@ dotfiles/
 │   ├── tailscale-serve-setup.sh   Reproducible tailnet serve config (svc:ollama, svc:codex-proxy, svc:openseo)
 │   ├── tailscale-serve-deploy.sh  System unit that re-runs the serve setup on every tailscaled start
 │   ├── rex-login-server-deploy.sh Rex login server accounts + tailnet listener, then enable the service
+│   ├── rexurrect-deploy.sh        The pinned rexurrect release and its zsh recorder, after its checksum and attestation
 │   ├── openseo-deploy.sh  OpenSEO on the Linux server, or on the NAS with --host nas: render, up, down, serve, status, create-admin (libraries in openseo/lib)
 │   ├── macos-gpu-monitor.sh       Metal GPU residency/power trace around any command (macOS)
 │   ├── launchd-user-path.sh       Check (or --apply) the launchd user PATH against config/launchd/ (macOS)
@@ -426,12 +427,15 @@ On the Linux server:
 
 1. `scripts/stow-deploy --headless --all` deploys the slot commands, the Rex config with its start-up step and
    tab-number watcher, and the units, then reloads the running Rex server's config.
-2. `bash scripts/host-jobs-enable.sh` enables the sweep, reconcile, and warm timers and starts `rex-server.service` and
-   `rex-tab-numbers.service`; `systemctl --user enable --now tmux-prune-orphans-slots.timer` adds the slot tmux server's
-   orphan sweep.
-3. `agent-slot-rex doctor` is the checklist from there. Each finding names what is missing with the command that fixes
+2. `scripts/rexurrect-deploy.sh` installs the pinned rexurrect and its zsh recorder.
+3. `bash scripts/host-jobs-enable.sh` enables the sweep, reconcile, warm, and save timers and starts
+   `rex-server.service` and `rex-tab-numbers.service`; `systemctl --user enable --now tmux-prune-orphans-slots.timer`
+   adds the slot tmux server's orphan sweep. Rerun it after a pull that adds a unit. A change to `rex-server.service`
+   takes effect at its next restart, `systemctl --user restart rex-server.service`, which saves the operator's own tabs
+   as the server stops.
+4. `agent-slot-rex doctor` is the checklist from there. Each finding names what is missing with the command that fixes
    it, such as the login server's deploy or rexurrect's. Rerun it until it reports no errors.
-4. Press the new-agent key in each repo's Rex session to open its prime, or run `claude --dangerously-skip-permissions`
+5. Press the new-agent key in each repo's Rex session to open its prime, or run `claude --dangerously-skip-permissions`
    once in its checkout, and accept the trust dialog, which the flag does not skip. Do the same for every repo cloned
    under `~/dev` later. A slot path is trusted only for a repo whose prime checkout you have trusted in Claude, because
    trust lets Claude load the repo's own settings and hooks. `agent-slot-warm.timer` runs `agent-slot warm --all` every
@@ -594,6 +598,24 @@ against still answers; when the server restarted or stopped partway, the pass ma
 for by hand reports each of these as an error. A server older than `AGENT_SLOT_REX_STARTUP_LIMIT` seconds (300) with no
 record is reconciled anyway, and that pass records rexurrect as skipped. `agent-slot-rex doctor` reports
 `reconcile-stale` once three passes in a row failed or found the lock held.
+
+`agent-slot-save.timer` runs `agent-slot-rex save` every 2 minutes, and `rex-server.service` runs it as it stops, so a
+planned restart keeps the newest tabs; at host shutdown, where the user manager has 5 s in all to stop every unit, the
+server stops without it. It runs `rexurrect save` only once the start-up record shows rexurrect's restore into the
+running server `done`, or `failed` or `stopped` at its bound with the server still in rexurrect's `restored-instances`
+file, because rexurrect's save first restores into a server it has not restored, which would open a second copy of every
+repo session. Otherwise it changes nothing, logs `save-paused` (or `rex-server-down`), and exits 0. Each save appends a
+line to `~/.local/state/agent-slot-rex/save.log`. `agent-slot-rex doctor` reports a save timer that is not running, a
+newest save that failed or began more than 6 minutes ago (`save-stale`), and a start-up record that pauses every save
+until the server restarts (`own-tabs-unrestored`). `scripts/rexurrect-deploy.sh` installs the pinned rexurrect and its
+zsh recorder, which `.zshrc` loads so a restore types each tab's last command back at its prompt. rexurrect's own
+settings live in `stow/rex/dot-config/rexurrect/config.toml`, which every host that runs it shares. On the Linux server,
+leave `rexurrect setup` and `rexurrect autosave install` unrun: each installs a timer of rexurrect's own that saves
+without that gate.
+
+`rex-server.service` stops and handles memory as the Rex package's own user unit does. Only the server gets SIGTERM, so
+it saves every session before it closes their terminals. An OOM kill in one tab leaves the server running, and each
+terminal runs in a cgroup of its own inside the unit's, so systemd-oomd stops only the terminal that used too much.
 
 Every trigger is logged, so the interval can be tuned from data. Each pass's line in
 `~/.local/state/agent-slot-rex/reconcile.log` names its trigger in `by`, with `ms` (how long the pass took), `changed`
@@ -987,15 +1009,16 @@ waits up to `AGENT_SLOT_RELEASE_WAIT` seconds (3600) for the agent, looking ever
 The keys run `agent-slot-rex launch`, `agent-slot-rex restore`, and `agent-slot-rex finish`, which on the Mac hand the
 verb to the server's helper; each pane runs `agent-slot-rex attach <repo>/<N> claude|files|git`, or
 `attach <repo>/prime` for a prime's, the tab of a prime on the default tmux server runs `agent-slot-rex prime <repo>`,
-the control session's tab runs `agent-slot-rex sweep`, and `agent-slot-rex doctor` checks the server's side. Every verb
-answers `--help`. Each launch runs the sweep again in the control session's one sweep tab, opening it when there is
-none; the tab stays open while something needs you, and `r` in it sweeps again. Restore, sweep, and finish change tabs
-one at a time: each waits up to `AGENT_SLOT_REX_LOCK_WAIT` seconds (300) for the one ahead of it to finish, so it sees
-the tabs that one opened. Each of those passes appends one JSON line to `~/.local/state/agent-slot-rex/reconcile.log`:
-when it ran, what ran it (`restore`, `restore-at-start`, `push`, `poll`, `sweep`, or `finish`), how long it took,
-whether it changed a tab, the tabs it planned to open, relabel, and close, and `ok` or the error that stopped it. Past 1
-MiB the log moves to `reconcile.log.1`. Rex takes a tab label of at most 128 characters, so a longer one is cut at the
-end of its needs-you message and ends in `…`.
+the control session's tab runs `agent-slot-rex sweep`, `agent-slot-rex save` snapshots the operator's own tabs with
+rexurrect, and `agent-slot-rex doctor` checks the server's side. Every verb answers `--help`. Each launch runs the sweep
+again in the control session's one sweep tab, opening it when there is none; the tab stays open while something needs
+you, and `r` in it sweeps again. Restore, sweep, and finish change tabs one at a time: each waits up to
+`AGENT_SLOT_REX_LOCK_WAIT` seconds (300) for the one ahead of it to finish, so it sees the tabs that one opened. Each of
+those passes appends one JSON line to `~/.local/state/agent-slot-rex/reconcile.log`: when it ran, what ran it
+(`restore`, `restore-at-start`, `push`, `poll`, `sweep`, or `finish`), how long it took, whether it changed a tab, the
+tabs it planned to open, relabel, and close, and `ok` or the error that stopped it. Past 1 MiB the log moves to
+`reconcile.log.1`. Rex takes a tab label of at most 128 characters, so a longer one is cut at the end of its needs-you
+message and ends in `…`.
 
 With `--output json`, every verb prints one JSON object on success and one error object on stderr, with a `reason` from
 the table below, an exit code (0 ok, 1 failed, 2 usage, 77 auth, 78 configuration), a `next_step`, a `recovery` that
@@ -1076,11 +1099,15 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `rex-server-foreign`          | 78   | Doctor: `rex-server.service` did not start the Rex server holding the socket; see `next_step`  |
 | `rex-restart-pending`         | 0    | Doctor warning: the installed Rex is newer than the running server; update the apps first      |
 | `reconcile-timer-inactive`    | 78   | The once-a-minute reconcile timer is not running; `systemctl --user enable --now` it           |
+| `save-timer-inactive`         | 78   | The 2-minute save timer is not running; `systemctl --user enable --now` it                     |
 | `tab-numbers-inactive`        | 78   | The tab-number watcher is not running; `systemctl --user enable --now rex-tab-numbers.service` |
 | `login-server-inactive`       | 78   | The Rex login server is not running, so no Rex client can reach the Linux server               |
-| `rexurrect-missing`           | 78   | Doctor warning: rexurrect is not installed, so own tabs are not restored after a Rex restart   |
+| `rexurrect-missing`           | 78   | rexurrect is not installed, so own tabs are neither saved nor restored after a Rex restart     |
 | `reconcile-stale`             | 1    | The reconcile timer runs but its journal shows no recent good pass; `agent-slot-rex restore`   |
-| `own-tabs-unrestored`         | 0    | Doctor warning: the start-up step did not restore the operator's own tabs into this Rex server |
+| `save-stale`                  | 1    | The save timer runs but its newest save began over 6 minutes ago; `agent-slot-rex save`        |
+| `own-tabs-unrestored`         | 1    | Doctor: own tabs are not restored into this Rex server, so every save pauses until a restart   |
+| `save-paused`                 | 0    | `save` changed nothing, as own tabs are not yet restored into this server; see `next_step`     |
+| `rexurrect-failed`            | 1    | `rexurrect save` failed, at once or as doctor read in `save.log`; `rexurrect.log` says why     |
 | `review-grant-from-slot`      | 1    | `grant-review` refused: run from a slot or a slot's pane; the operator or a prime grants       |
 | `slot-head-missing`           | 1    | `grant-review` refused: the slot has no branch or commit to count rounds under                 |
 | `scope-grant-from-slot`       | 1    | `grant-scope` refused: run from a slot or its tmux server; only the operator grants scope      |

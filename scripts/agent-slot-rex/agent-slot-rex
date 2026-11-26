@@ -70,6 +70,8 @@ source "$AR_LIB/reconcile.sh"
 source "$AR_LIB/startup.sh"
 # shellcheck source=lib/reattach.sh
 source "$AR_LIB/reattach.sh"
+# shellcheck source=lib/save.sh
+source "$AR_LIB/save.sh"
 # shellcheck source=lib/launch.sh
 source "$AR_LIB/launch.sh"
 # shellcheck source=lib/attach.sh
@@ -175,6 +177,10 @@ main() {
       else
         usage_fail "finish takes a slot, <repo>/<N>, or --tab --session ID --block ID" "${args[*]}"
       fi
+      ;;
+    save)
+      ((${#args[@]} == 0)) || usage_fail "save takes no arguments" "${args[0]}"
+      cmd_save
       ;;
     doctor)
       ((${#args[@]} == 0)) || usage_fail "doctor takes no arguments" "${args[0]}"

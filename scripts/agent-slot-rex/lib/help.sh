@@ -11,15 +11,16 @@ Verbs:
   restore  give every live slot and running prime a tab, resume dormant slots, and close tabs whose slot is gone
   sweep    tear down finished slots, restore, then list the slots that need you
   finish   finish a task with no open PR and tear its slot down, from the control session
+  save     save the operator'"'"'s own tabs with rexurrect, once the start-up step has restored them
   doctor   check the Rex server, the units, rexurrect, and the reconcile journal, then run agent-slot'"'"'s doctor
 
-On macOS, launch, prime, restore, finish, sweep, and doctor run on the Linux server'"'"'s helper over ssh; the other
-verbs run only there.
+On macOS, launch, prime, restore, finish, sweep, save, and doctor run on the Linux server'"'"'s helper over ssh; the
+other verbs run only there.
 
-Every verb takes --help. launch, restore, sweep, finish, and doctor take --output json (one JSON object on stdout, or an error
-object on stderr). Exit codes: 0 ok, 1 failed, 2 usage, 77 auth, 78 configuration.'
+Every verb takes --help. launch, restore, sweep, finish, save, and doctor take --output json (one JSON object on stdout, or
+an error object on stderr). Exit codes: 0 ok, 1 failed, 2 usage, 77 auth, 78 configuration.'
 
-VERBS=' launch prime attach restore sweep finish doctor '
+VERBS=' launch prime attach restore sweep finish save doctor '
 
 verb_help() {
   case $1 in
@@ -74,11 +75,23 @@ verb_help() {
       "when check passes; then restores tabs, which closes the task's tab. --tab, which the finish key passes, finds" \
       "the slot of the tab holding the block and runs the finish in a tab of the agent-slots session." \
       'example: agent-slot-rex finish dotfiles/2' ;;
+    save) printf '%s\n' 'usage: agent-slot-rex save [--output json]' \
+      "Runs rexurrect save, which snapshots the operator's own tabs, once $AR_STARTUP_RECORD shows that the start-up" \
+      "step's rexurrect restore into the running Rex server is done, or failed or stopped at its bound with rexurrect" \
+      "still recording the server as restored into. Otherwise, or with no Rex server answering or no rex CLI, it" \
+      "changes nothing, says why under skipped (save-paused, rex-server-down, or dependency-missing), and exits 0:" \
+      "rexurrect's save restores first into a server it has not restored, which would open a second copy of each" \
+      "repo session. rexurrect save runs for at most $AR_SAVE_BOUND s. agent-slot-save.timer runs it every 2 minutes," \
+      "and $AR_REX_UNIT runs it as it stops, so a restart keeps the newest tabs. Each run appends a line to" \
+      "$AR_SAVE_LOG. Returns saved, instance, startup (rexurrect's outcome in the start-up record), and skipped," \
+      'whose next_step names the command that ends the pause.' \
+      'example: agent-slot-rex save' ;;
     doctor) printf '%s\n' 'usage: agent-slot-rex doctor [--output json]' \
       "Checks the rex CLI, the Rex server (that $AR_REX_UNIT started it, its build, and the new-agent action)," \
-      "the reconcile timer, the tab-number watcher, the login server, rexurrect, the reconcile journal, and where" \
-      "the agent-slots tmux server runs, then adds agent-slot doctor's findings. Versions that differ from the" \
-      'verified ones only warn.' \
+      "the reconcile and save timers, the tab-number watcher, the login server, rexurrect and its newest save (failed," \
+      "or older than $AR_SAVE_STALE s), a start-up record that pauses every save, the reconcile journal, and where the" \
+      "agent-slots tmux server runs, then adds agent-slot doctor's findings. Versions that differ from the verified" \
+      "ones only warn." \
       'example: agent-slot-rex doctor --output json' ;;
   esac
 }

@@ -6,6 +6,7 @@
 # may have made.
 
 LAUNCH_REPO='' LAUNCH_TASK='' LAUNCH_HERE=0 LAUNCH_WAIT_SHOWN=0 LAUNCH_PICKED=0 LAUNCH_NAMED=0 LAUNCH_WINDOW=''
+LAUNCH_SESSION=''
 LAUNCH_OF_PRIME=0
 LAUNCH_REPOS='[]'
 LAUNCH_OPENED_AT='' LAUNCH_SHOWN_AT=''
@@ -32,6 +33,15 @@ launch_parse_args() {
       *) usage_fail "unknown argument $1" "$1" ;;
     esac
   done
+}
+
+# Sets LAUNCH_SESSION to the ID of this terminal's Rex session. Rex 0.1.0~preview.23 and later set REX_BLOCK but no
+# REX_SESSION, so the session is the one holding the block.
+launch_session() {
+  LAUNCH_SESSION=${REX_SESSION:-}
+  [[ -z $LAUNCH_SESSION ]] || return 0
+  rex_session_of "$REX_BLOCK"
+  LAUNCH_SESSION=$REX_OUT
 }
 
 launch_is_repo() {
@@ -73,8 +83,8 @@ launch_resolve_repo() {
     contract_fail repo-not-found "no prime checkout is named $LAUNCH_REPO" --value "$LAUNCH_REPO" \
       --command "agent-slot repos"
   fi
-  if [[ -n ${REX_SESSION:-} ]]; then
-    rex_session_label "$REX_SESSION"
+  if [[ -n $LAUNCH_SESSION ]]; then
+    rex_session_label "$LAUNCH_SESSION"
     label=$REX_OUT
     if launch_is_repo "$label"; then
       LAUNCH_REPO=$label LAUNCH_NAMED=1
@@ -138,8 +148,8 @@ launch_succeeded() {
   label=$(contract_json -r '.key
     + ((.label_name // .task // .branch) as $name | if $name then " · \($name)" else "" end)
     + (if .trust_prompt_expected == true then " · trust needed" else "" end)' <<<"$SERVER_OUT")
-  launch_try rex_rename "$REX_SESSION" "$LAUNCH_WINDOW" "$label"
-  launch_try rex_layout "$REX_SESSION" "$REX_BLOCK" "$key"
+  launch_try rex_rename "$LAUNCH_SESSION" "$LAUNCH_WINDOW" "$label"
+  launch_try rex_layout "$LAUNCH_SESSION" "$REX_BLOCK" "$key"
   launch_try launch_open_sweep
   contract_ok "$SERVER_OUT" '"\(.key) \(if .created then "is ready" else "already held this request" end) at \(.path)"'
   rm -f "$CONTRACT_NOISE"
@@ -154,14 +164,14 @@ launch_failed() {
     label="$LAUNCH_REPO · prime failed" what="the prime of $LAUNCH_REPO did not start"
     retry='press Enter to retry, or q to close this tab'
   fi
-  launch_try rex_rename "$REX_SESSION" "$LAUNCH_WINDOW" "$label"
+  launch_try rex_rename "$LAUNCH_SESSION" "$LAUNCH_WINDOW" "$label"
   printf '\nagent-slot-rex: %s\n' "$what"
   contract_error_text "$AR_ERROR"
   if [[ $(contract_json -r '.recovery.retryable' <<<"$AR_ERROR") == true ]]; then
     printf '%s\n' "$retry"
     while IFS= read -r -n 1 key; do
       if [[ -z $key ]]; then
-        ((LAUNCH_OF_PRIME == 0)) || launch_try rex_rename "$REX_SESSION" "$LAUNCH_WINDOW" "$PRIME_LABEL"
+        ((LAUNCH_OF_PRIME == 0)) || launch_try rex_rename "$LAUNCH_SESSION" "$LAUNCH_WINDOW" "$PRIME_LABEL"
         return 0
       fi
       [[ $key != q ]] || return 1
@@ -189,7 +199,7 @@ launch_call() {
 # out on screen, so only for a tab it shows; its reads of a background tab's title, status, and output ask none. The
 # session's active window is no such sign: Rex.app has shown a tab it selected without moving it.
 launch_shown() {
-  rex_run block call -s "$REX_SESSION" -b "$REX_BLOCK" size \
+  rex_run block call -s "$LAUNCH_SESSION" -b "$REX_BLOCK" size \
     && contract_json -e '(.desired // []) | length > 0' <<<"$REX_OUT" >/dev/null
 }
 
@@ -210,7 +220,7 @@ launch_wait_shown() {
     return 0
   fi
   CONTRACT_EMITTED=1
-  rex_close "$REX_SESSION" "$LAUNCH_WINDOW"
+  rex_close "$LAUNCH_SESSION" "$LAUNCH_WINDOW"
   exit 0
 }
 
@@ -252,12 +262,12 @@ launch_repos() {
 launch_prime() {
   local server
   LAUNCH_OF_PRIME=1
-  launch_try rex_rename "$REX_SESSION" "$LAUNCH_WINDOW" "$PRIME_LABEL"
+  launch_try rex_rename "$LAUNCH_SESSION" "$LAUNCH_WINDOW" "$PRIME_LABEL"
   printf 'agent-slot-rex: opening the prime of %s\n' "$LAUNCH_REPO"
   launch_call "$AR_PRIME_BOUND" prime "$LAUNCH_REPO"
-  launch_try rex_move_first "$REX_SESSION" "$LAUNCH_WINDOW"
+  launch_try rex_move_first "$LAUNCH_SESSION" "$LAUNCH_WINDOW"
   server=$(contract_json -r '.server' <<<"$SERVER_OUT")
-  [[ $server != slots ]] || launch_try rex_layout "$REX_SESSION" "$REX_BLOCK" "$(slot_key "$LAUNCH_REPO" "$SLOT_PRIME")"
+  [[ $server != slots ]] || launch_try rex_layout "$LAUNCH_SESSION" "$REX_BLOCK" "$(slot_key "$LAUNCH_REPO" "$SLOT_PRIME")"
   contract_ok "$SERVER_OUT" '"opening the prime of \(.repo), in \(.session)"'
   rm -f "$CONTRACT_NOISE"
   # A pass counts the prime command as holding only an old-style session, so a tab passing through it for a prime on the
@@ -272,7 +282,7 @@ launch_here() {
   [[ -z $LAUNCH_OPENED_AT ]] || args+=(--opened-at "$LAUNCH_OPENED_AT")
   [[ -z $LAUNCH_SHOWN_AT ]] || args+=(--shown-at "$LAUNCH_SHOWN_AT")
   [[ -z $LAUNCH_TASK ]] || args+=(--task "$LAUNCH_TASK")
-  launch_try rex_rename "$REX_SESSION" "$LAUNCH_WINDOW" "$LAUNCH_REPO · launching"
+  launch_try rex_rename "$LAUNCH_SESSION" "$LAUNCH_WINDOW" "$LAUNCH_REPO · launching"
   printf 'agent-slot-rex: starting an agent in a fresh slot of %s (request %s)\n' "$LAUNCH_REPO" "${args[4]}"
   # Outlasts the server's own bounds end to end: repo lock 60 s, clone 900 s, git-crypt 120 s, trust 45 s, the three
   # sessions' tmux calls 90 s, and the start of the prime.
@@ -284,14 +294,15 @@ cmd_launch() {
   contract_use_tools rex agent-slot
   if ((LAUNCH_HERE == 1)); then
     LAUNCH_OPENED_AT=$(launch_opened_at)
-    [[ -n ${REX_SESSION:-} && -n ${REX_BLOCK:-} ]] \
-      || usage_fail "--here runs only in a Rex terminal, which sets REX_SESSION and REX_BLOCK"
-    rex_window_of "$REX_SESSION" "$REX_BLOCK"
+    [[ -n ${REX_BLOCK:-} ]] || usage_fail "--here runs only in a Rex terminal, which sets REX_BLOCK"
+    launch_session
+    rex_window_of "$LAUNCH_SESSION" "$REX_BLOCK"
     LAUNCH_WINDOW=$REX_OUT
     ((LAUNCH_WAIT_SHOWN == 0)) || launch_repos_early
     ((LAUNCH_WAIT_SHOWN == 0)) || launch_wait_shown
     ((LAUNCH_WAIT_SHOWN == 0)) || LAUNCH_SHOWN_AT=$(launch_now)
   fi
+  ((LAUNCH_HERE == 1)) || [[ -z ${REX_BLOCK:-} ]] || launch_session
   launch_repos
   LAUNCH_REPOS=$(contract_json -c '[.repos[].name]' <<<"$SERVER_OUT")
   launch_resolve_repo
@@ -301,7 +312,7 @@ cmd_launch() {
   fi
   if ((LAUNCH_NAMED == 1)); then
     prime_of "$LAUNCH_REPO"
-    prime_tab_open "$REX_SESSION" "$LAUNCH_REPO" "$PRIME_LABEL" "$LAUNCH_WINDOW" || launch_prime
+    prime_tab_open "$LAUNCH_SESSION" "$LAUNCH_REPO" "$PRIME_LABEL" "$LAUNCH_WINDOW" || launch_prime
   fi
   launch_here
 }

@@ -1,10 +1,10 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it
 # Every call to the rex CLI, and the process lookup that tells whether a pane's attach loop is running.
 #
-# Rex sets REX_BIN_DIR, REX_SESSION, and REX_BLOCK in every terminal it opens. A command Rex starts at load, a timer, or
-# a shell over ssh has none of them, so the CLI is also looked for where the rex package installs it. Each call is
-# bounded, reads no stdin, names its session by ID, and passes --autostart=false: a Rex server this helper started would
-# carry the caller's environment, an agent's included, into everything it runs.
+# Rex sets REX_BIN_DIR and REX_BLOCK in every terminal it opens, and REX_SESSION before 0.1.0~preview.23. A command
+# Rex starts at load, a timer, or a shell over ssh has none of them, so the CLI is also looked for where the rex package
+# installs it. Each call is bounded, reads no stdin, names its session by ID, and passes --autostart=false: a Rex server
+# this helper started would carry the caller's environment, an agent's included, into everything it runs.
 
 AR_REX=
 REX_OUT=
@@ -73,6 +73,16 @@ rex_missing_error() {
     --value "${REX_BIN_DIR:-}" --command "sudo apt-get install rex"
 }
 
+# The error object for a rex_server_status that failed: the CLI is missing, or no Rex server answers.
+rex_down_error() {
+  if [[ -z $AR_REX ]]; then
+    rex_missing_error
+  else
+    contract_error_json rex-server-down "no Rex server answers on this host ($(rex_error_line))" \
+      --value "$AR_REX_UNIT" --command "systemctl --user start $AR_REX_UNIT"
+  fi
+}
+
 # Usage: rex_or_fail <args...>; rex_run, ending the command with rex-failed (or dependency-missing) on failure.
 rex_or_fail() {
   local status=0
@@ -94,6 +104,13 @@ rex_error_line() {
 rex_session_label() {
   rex_or_fail session inspect "$1" --json
   REX_OUT=$(contract_json -r '.label // ""' <<<"$REX_OUT")
+}
+
+# Usage: rex_session_of <block-id>; sets REX_OUT to the ID of the session holding the block, which `session inspect`
+# takes in a session's place from Rex 0.1.0~preview.23.
+rex_session_of() {
+  rex_or_fail session inspect "$1" --json
+  REX_OUT=$(contract_json -r '.session_id // ""' <<<"$REX_OUT")
 }
 
 # Usage: rex_session_find <label>; sets REX_SID to the ID of the first session with that label, or ''.

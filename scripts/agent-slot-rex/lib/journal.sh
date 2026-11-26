@@ -3,11 +3,15 @@
 # however it ended: when it began, what ran it, how long it took, whether it changed any tab, the plan's opens, renames,
 # and closes (null when it stopped before planning; only those it carried out when the Rex server restarted or stopped
 # partway), why a pass stopped short on purpose (skipped: rex-server-down, startup-pending, reconcile-busy, or
-# rex-server-restarted, else null), rexurrect's outcome when the pass recorded one, the start-up step's prime outcomes
-# (reattach.sh's PRIME_REATTACHED; null in every other pass), and ok or the error that stopped it.
+# rex-server-restarted, else null), rexurrect's outcome when the pass recorded one (in a save's line, that of its own
+# rexurrect save: done or failed), the start-up step's prime outcomes (reattach.sh's PRIME_REATTACHED; null in every
+# other pass), and ok or the error that stopped it.
 # A pass that changed nothing still writes its line, so the timer's interval can be tuned from how often a pass finds
-# work. contract_log_line bounds the log.
+# work. contract_log_line bounds the log. A save writes the same line to $AR_SAVE_LOG instead (save.sh), with skipped
+# save-paused, rex-server-down, or dependency-missing, so the reconcile log's newest lines, which doctor reads, stay
+# reconcile passes.
 
+JOURNAL_LOG=$AR_STATE/reconcile.log
 JOURNAL_BY=''
 JOURNAL_AT=''
 JOURNAL_MS=0
@@ -16,7 +20,7 @@ JOURNAL_SKIPPED=''
 JOURNAL_REXURRECT=''
 JOURNAL_PRIMES=null
 
-# Usage: journal_begin <restore|restore-at-start|push|poll|sweep|finish>; does nothing while a pass is under
+# Usage: journal_begin <restore|restore-at-start|push|poll|sweep|finish|save>; does nothing while a pass is under
 # way, so the start-up step's line also times its wait for the server and rexurrect's restore.
 journal_begin() {
   [[ -z $JOURNAL_BY ]] || return 0
@@ -39,7 +43,7 @@ journal_end() {
      error: (if $error == null then null else $error | {reason, message, log} end)}') || line=''
   JOURNAL_BY=''
   [[ -n $line ]] || return 0
-  contract_log_line "$AR_STATE/reconcile.log" "$line"
+  contract_log_line "$JOURNAL_LOG" "$line"
 }
 
 # At exit, a pass still under way stopped without an error object of its own.

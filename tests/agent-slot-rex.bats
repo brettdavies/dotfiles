@@ -28,7 +28,7 @@ in_rex_session() {
 
 @test "every verb answers --help with a usage line and an example" {
   local verb
-  for verb in launch prime attach restore sweep finish doctor; do
+  for verb in launch prime attach restore sweep finish save doctor; do
     run "$AGENT_SLOT_REX" "$verb" --help
     [ "$status" -eq 0 ]
     [[ ${lines[0]} == "usage: agent-slot-rex $verb"* ]]
@@ -69,6 +69,19 @@ in_rex_session() {
   called '^rex do agent_slot_layout -s sess-a -b blk-a key=X/3 block=blk-a$'
   called '^agent-slot-rex attach X/3 claude$'
   [ "$(tail -1 "$CALLS")" = "agent-slot-rex attach X/3 claude" ]
+}
+
+@test "launch --here in a terminal where Rex sets only REX_BLOCK finds its session from the block" {
+  in_rex_session X
+  unset REX_SESSION
+  prime_tab_in sess-a X
+  repos X Y
+  slot_answer launch 0 "$LAUNCHED"
+  run "$AGENT_SLOT_REX" launch --here
+  [ "$status" -eq 0 ]
+  called '^agent-slot launch X --model opus '
+  called '^rex window rename -s sess-a win-a X/3$'
+  called '^rex do agent_slot_layout -s sess-a -b blk-a key=X/3 block=blk-a$'
 }
 
 @test "launch adds trust needed to the label when the server expects the trust dialog" {
