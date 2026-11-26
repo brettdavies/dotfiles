@@ -2176,3 +2176,11 @@ Unresolved decisions: none.
   here include the branch log's 2026-09-22 entries for the yazi plan.
 
 NO UNRESOLVED DECISIONS
+
+## Review log
+
+| # | Review | Of | Model, effort | Started (UTC) | Finished (UTC) | Verdict |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | `ce-code-review` | dotfiles#538 (U7) at `0e4ad9e` | Opus, `high` | 2026-11-26 16:58 | | |
+| 2 | `/devex-review` | dotfiles#538 (U7) at `0e4ad9e` | Opus, `high` | 2026-11-26 16:58 | | |
+| 3 | `/cso` | dotfiles#538 (U7) at `0e4ad9e` | Opus, `xhigh` | 2026-11-26 16:58 | | |
