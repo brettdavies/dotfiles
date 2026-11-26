@@ -420,3 +420,4 @@ flowchart TB
   `-server` driver; the check reports a pending reboot with no install line whenever no package of the loaded branch is
   at the loaded version; the runbook unit rewrites A.4's "No apt pinning"; Procedure D's text stays present tense. One
   advisory: KTD3 credited `charcount` with isolation flags it lacks, and that clause is removed.
+- 2026-11-26 15:49 CST: `/plan-eng-review` started.
