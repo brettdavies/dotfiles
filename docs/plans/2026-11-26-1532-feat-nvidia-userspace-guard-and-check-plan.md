@@ -180,18 +180,23 @@ Not in scope for this brief:
   When apt knows neither name, the step is SKIP. A failure names `sudo ~/dotfiles/scripts/nvidia-deploy.sh`. Asking apt
   rather than comparing files also catches a later preferences file that raises the pin.
 - KTD8. **Output follows `qmd-gpu-verify`.** Lines start with `PASS`, `FAIL`, `SKIP`, `INFO`, or `NOTE`. Every FAIL is
-  followed by an indented `next:` line holding one command that is safe to paste. A summary line closes the run. Exit 0
-  means no FAIL, 1 means at least one, and 2 is a usage error. `-h` and `--help` print usage. A missing package's
-  `next:` pins `=<Debian version>`, taken from an installed package of the branch (`nvidia-kernel-common-<B>-server` or
-  one of the five) at the loaded version, so the fix never reaches the trap. When no such package exists but some
-  `-server` NVIDIA userspace is installed, either a reboot is pending (an upgrade within the branch, or a branch change
-  whose new module is not loaded yet) or another branch's package replaced this one. The package step then prints one
-  FAIL naming the loaded module and the installed `-server` userspace with both causes, with
-  `next: sudo dkms status nvidia` and no install line, which could undo a branch change. A reboot is the fix only when
-  DKMS shows the new module built; after the branch trap it is not, and a reboot would come up with no module. The
-  NVENC, NVDEC, and Vulkan steps print SKIP naming the mismatch, since a userspace at another version than the module
-  fails them all. Status and version come from `dpkg-query -f='${db:Status-Abbrev} ${Version}'` split by `read`, since
-  the abbreviation is `ii` with a trailing space.
+  followed by an indented `next:` line holding one command that is safe to paste. Every FAIL is one line: a probe that
+  prints no `nvenc` or `nvdec` answer, such as one that dies with a traceback, is reported with the last line of its
+  output only. A summary line closes the run. Exit 0 means no FAIL, 1 means at least one, and 2 is a usage error. `-h`
+  and `--help` print usage, which says the check is read-only and that a `next:` line starting with `sudo` needs root,
+  so an agent without it hands that line to the operator. A missing package's `next:` pins `=<Debian version>`, taken
+  from an installed package of the branch (`nvidia-kernel-common-<B>-server` or one of the five) at the loaded version,
+  so the fix never reaches the trap. When no such package exists but some `-server` NVIDIA userspace is installed,
+  either a reboot is pending (an upgrade within the branch, or a branch change whose new module is not loaded yet) or
+  another branch's package replaced this one. The package step then prints one FAIL naming the loaded module and the
+  installed `-server` userspace with both causes, with `next: /usr/sbin/dkms status nvidia` and no install line, which
+  could undo a branch change. `dkms status` needs no root [measured: exit 0 from the slot], and the full path reaches it
+  from a PATH without `/usr/sbin`, as an agent slot's is; `sudo` would make the line one that only the operator can run.
+  A reboot is the fix only when DKMS shows the new module built; after the branch trap it is not, and a reboot would
+  come up with no module. The NVENC, NVDEC, and Vulkan steps print SKIP naming the mismatch, since a userspace at
+  another version than the module fails them all. Status and version come from
+  `dpkg-query -f='${db:Status-Abbrev} ${Version}'` split by `read`, since the abbreviation is `ii` with a trailing
+  space.
 - KTD9. **The guard's suite drives real apt in a throwaway repository.** It builds a flat `file:` repo of stub packages
   in `setup_file`, with every `Dir::State`, `Dir::Cache`, and `Dir::Etc` path redirected into `BATS_FILE_TMPDIR` and
   `Debug::NoLocking`. Each stub carries the `Source:` its real package has, so the `src:` rule is exercised [measured:
@@ -309,17 +314,20 @@ flowchart TB
     `libnvidia-encode-580-server=580.178.04-0ubuntu0.24.04.1`. Exit 1.
   - The same check with a 615.71.09 module and `-615-server` packages passes. That proves nothing is pinned to 580.
   - Every package at 580.196.07 while the module is 580.178.04: one FAIL naming both versions with
-    `next: sudo dkms status nvidia`, and three SKIPs (NVENC, NVDEC, Vulkan), not five mismatched packages.
+    `next: /usr/sbin/dkms status nvidia`, and three SKIPs (NVENC, NVDEC, Vulkan), not five mismatched packages.
   - Three packages at 580.196.07 and encode and decode missing, module 580.178.04: the same FAIL and no install `next:`
     line.
   - A 580.178.04 module with only `nvidia-kernel-common-615-server` installed, the branch trap's leftover: the same FAIL
     naming 615.71.09, and no `next:` line that installs a 580 package or reboots.
   - One package at another version while the rest match: FAIL naming that package and both versions.
-  - No module loaded but `nvidia-kernel-common-580-server` installed: FAIL module not loaded, pointing at Procedure B.
+  - No module loaded but `nvidia-kernel-common-580-server` installed: FAIL module not loaded, with
+    `next: /usr/sbin/dkms status nvidia`.
   - No module and no NVIDIA server package: NOTE and exit 0, with no other step run.
   - A stubbed Darwin `uname`: NOTE and exit 0.
   - The probe reports `nvenc load-failed`: FAIL naming `libnvidia-encode`. The probe reports `nvdec load-failed`: FAIL
     naming `libnvidia-decode`.
+  - The probe dies with a three-line Python traceback and prints no answer: one FAIL line per engine carrying the
+    traceback's last line, and no traceback line elsewhere in the output.
   - The probe reports `nvdec cuda-failed cuDevicePrimaryCtxRetain=CUDA_ERROR_OUT_OF_MEMORY`: FAIL carrying that name,
     with `next: nvidia-smi`.
   - The probe times out (stubbed `timeout` exits 124): FAIL naming the 30 s limit, with `next: nvidia-smi`; the same for
@@ -354,8 +362,9 @@ flowchart TB
 - **Dependencies:** U1, U2.
 - **Files:** none committed. The evidence goes in the PR body.
 - **Approach:**
-  1. Run the check from the slot. Expected today: FAIL for `libnvidia-encode` and `libnvidia-decode` with pinned `next:`
-     lines, NVENC and NVDEC FAIL, Vulkan PASS at 580.178.04, and the guard FAIL with the deploy command.
+  1. Run the check from the slot under `gtime -f '%e s %M KB'`, so the PR body carries its real time and peak memory.
+     Expected today: FAIL for `libnvidia-encode` and `libnvidia-decode` with pinned `next:` lines, NVENC and NVDEC FAIL,
+     Vulkan PASS at 580.178.04, and the guard FAIL with the deploy command.
   2. Rerun it with `LD_LIBRARY_PATH` pointing at the 580 encode and decode libraries unpacked from `apt-get download`.
      The two probes then PASS (`api=13.0`, three codecs), which proves the ctypes calls against the real driver.
   3. Run `apt-get install -s` with `-o Dir::Etc::PreferencesParts` pointing at a copy of `/etc/apt/preferences.d` plus
@@ -378,12 +387,17 @@ flowchart TB
 - **Files:**
   - `docs/runbooks/headless-gpu-server-nvidia-driver.md` (modify)
   - `AGENTS.md` (modify: an `### NVIDIA apt guard (config/apt/preferences.d/)` section beside the other `/etc` config
-    sections, stating that the guard serves `-server`-driver hosts only and that it does not refuse another branch's
-    `-server` add-ons)
+    sections, naming `nvidia-gpu-verify` as the command that proves apt honours the guard, and stating that the guard
+    serves `-server`-driver hosts only and that it does not refuse another branch's `-server` add-ons)
   - `README.md` (modify: the `config/` tree line, the `scripts/` tree line, and a row in the local commands table)
 - **Approach:**
   1. **Current canonical state:** the five-package set at the driver's exact version, the guard, and the check as the
-     arbiter.
+     arbiter. The check's section opens with how to reach it on a host that just pulled the change, since a pull relinks
+     only the `claude` and `secrets` packages: `cd ~/dotfiles && scripts/stow-deploy --headless --only local`, then
+     `nvidia-gpu-verify`. It shows U4's healthy-probe output, trimmed, and one FAIL with its `next:` line, and says that
+     a `next:` starting with `sudo` is the operator's to run. When the guard step fails on a host where
+     `scripts/nvidia-deploy.sh --check` reports the guard deployed, a preferences file sorting before it overrides it,
+     and `apt-cache policy libnvidia-encode-<B>` shows the winning pin.
   2. **Procedure D:** both libraries named at `=$V` and `NEEDRESTART_MODE=l`, with the install command taken from the
      check's `next:` line or built from the loaded module's branch and version, and a simulation that must show 0 to
      remove before the real run. It names the branch trap with its measured examples: an add-on of another branch
@@ -464,6 +478,12 @@ flowchart TB
   `nvidia-driver-pin`; the probe and `vulkaninfo` run under `timeout 30`; CUDA failures carry their error names; the
   pending-reboot and branch-trap shapes point at `sudo dkms status nvidia`; status and version parse with `read`; the
   runbook names the branch trap and the non-server-host rule. Ledger and tasks in the appendix below.
+- 2026-11-26 16:20 CST: `/plan-devex-review` started.
+- 2026-11-26 16:48 CST: `/plan-devex-review` ended (DX POLISH): score 6/10 to 7/10, TTHW target under 2 minutes, 0
+  unresolved. Applied: the pending-reboot and module-not-loaded FAILs point at `/usr/sbin/dkms status nvidia`, which
+  needs no root; a probe with no answer is reported on one line; usage says the check is read-only and who runs `sudo`
+  lines; the runbook gains the restow step, real output, and the overridden-guard diagnosis; AGENTS.md names the check;
+  U4 times the live run. Ledger and tasks in the DX appendix below.
 
 ## Appendix: Engineering Review (plan-eng-review, 2026-11-26)
 
@@ -697,7 +717,7 @@ Synthesized from this review's findings. Each task derives from a specific findi
   - Surfaced by: Architecture, failure per path (E-D2)
   - Files: `stow/local/dot-local/bin/nvidia-gpu-verify`, `tests/nvidia-gpu-verify.bats`
   - Verify: the timeout scenarios FAIL with `next: nvidia-smi`
-- [ ] **NV3 (P1, human: ~1h / CC: ~10min)** — check — One FAIL with `next: sudo dkms status nvidia` for the
+- [ ] **NV3 (P1, human: ~1h / CC: ~10min)** — check — One FAIL with `next: /usr/sbin/dkms status nvidia` (DX-D1) for the
   pending-reboot and branch-trap shapes
   - Surfaced by: Architecture, failure per path (E-D7, E-D8)
   - Files: `stow/local/dot-local/bin/nvidia-gpu-verify`, `tests/nvidia-gpu-verify.bats`
@@ -751,21 +771,316 @@ None in this review.
 - Parallelization: 2 lanes, 2 parallel / 2 sequential
 - Lake Score: 5/6 = answers picking a 10/10 option / answers scored for Completeness (E-D4 took the 7/10 docs option)
 
+## Appendix: Developer Experience Review (plan-devex-review, 2026-11-26)
+
+Target: this plan at `077e71a`, in DX POLISH mode: the brief fixes the scope (one check, one guard, its deploy, the
+docs), so the review hardens those touchpoints and adds no surface. It ran in the unattended slot, so each choice below
+is decided from evidence and recorded with it. Web search was unavailable (no Aside on this host); the benchmark uses
+local measurement and in-distribution knowledge, each labelled.
+
+### Developer persona
+
+```text
+TARGET DEVELOPER PERSONA
+========================
+Who:       Brett, the operator, in an ssh shell on the Linux GPU server; second, an AI agent (a slot or the
+           coordinating session) that runs the check unattended and has no root.
+Context:   right after a driver or add-on package change, before a NVENC/NVDEC workload, or when a consumer
+           (ollama, qmd-serve, an ffmpeg job) fails on the GPU.
+Tolerance: one command and under a minute; the agent reads every line literally and cannot answer a prompt.
+Expects:   a verdict per piece of the stack and a command that fixes each failure without reaching the
+           package-name trap.
+```
+
+Evidence: the brief ("Brett runs every root command"; slots deny sudo), the GPU host's consumers in the runbook, and the
+precedent `qmd-gpu-verify`, which the operator and agents already run.
+
+### Developer perspective
+
+I just let unattended-upgrades run, or I installed the encode library for a new consumer. Today nothing tells me whether
+the stack is whole. `nvidia-smi` answers in 0.03 s [measured] and says nothing about the encode or decode libraries.
+`dpkg -l | grep nvidia` lists two dozen packages and leaves me to compare versions with the loaded module by eye. The
+only proof NVENC works is an encode, which takes a session from a running job and is off limits before 2026-11-28. If I
+guess the obvious name, `apt install libnvidia-encode-580`, apt removes the `-server` userspace, and I find out when the
+next consumer fails. With the plan: I pull, restow `local`, and run `nvidia-gpu-verify`. In about a second it prints a
+PASS or FAIL per package, the NVENC API version, the decode caps, the Vulkan device, and the guard, and each FAIL
+carries the exact pinned install line. As an agent I can run all of it, and every `next:` line either runs without root
+or starts with `sudo`, which tells me to hand it to Brett. (Predicted, from the plan and the draft run; the trace below
+found the restow step and two error lines as the friction points.)
+
+### Competitive DX benchmark
+
+Clock: from "a package changed" to "I know which piece is broken and the command that fixes it", for the operator in an
+ssh shell.
+
+| Tool                          | Start → result                                     | Time + evidence type                         | DX choice                                    | Source                    |
+| ----------------------------- | -------------------------------------------------- | -------------------------------------------- | -------------------------------------------- | ------------------------- |
+| `nvidia-smi`                  | driver answers; no add-on, NVENC, or Vulkan answer | 0.03 s [measured]                            | one fast health line                         | this host                 |
+| `vulkaninfo --summary`        | Vulkan device and driver version only              | 0.41 s, 170 MB [measured]                    | full device dump, no verdict                 | this host                 |
+| `nvidia-bug-report.sh`        | everything, as a log for NVIDIA support            | minutes, root [in-distribution]              | collect all, judge nothing                   | NVIDIA driver package     |
+| `ubuntu-drivers list`         | which driver Ubuntu recommends                     | seconds [in-distribution]                    | recommends, does not verify                  | Ubuntu                    |
+| A test encode with ffmpeg     | NVENC end to end                                   | seconds, but takes an NVENC session [report] | proves the path, costs a session             | research report           |
+| Today, by hand                | `dpkg -l`, `nvidia-smi`, `vulkaninfo`, an encode   | 5 to 10 min [estimated], and expertise       | the operator is the arbiter                  | runbook Procedure B       |
+| `nvidia-gpu-verify` (planned) | a verdict per piece with a pinned fix line         | 0.96 s, 171 MB for the draft [measured]      | one command, read-only, fix on the next line | scratch draft, eng review |
+
+Target: Champion (under 2 minutes), from the documented start (a fresh pull) to the verdict: two commands and about a
+second of run time. Decided on evidence: the draft already runs in under a second, and the only added step is the restow
+the trace found.
+
+### Magical moment
+
+A missing or mismatched add-on prints its fix pinned to the loaded driver's exact Debian version, for example
+`sudo NEEDRESTART_MODE=l apt-get install "libnvidia-encode-580-server=580.178.04-0ubuntu0.24.04.1"`, so the command the
+operator pastes cannot pull in the non-server build. Vehicle: the check's existing `next:` line (KTD8); no new surface.
+Beside it, the NVENC line names the API version (`API 13.0`) that decides which ffmpeg builds can encode.
+
+### Developer journey
+
+```text
+STAGE           | DEVELOPER DOES                                        | FRICTION POINTS                         | STATUS
+----------------|-------------------------------------------------------|-----------------------------------------|--------
+1. Discover     | reads the runbook, README's local commands, AGENTS.md | agents look in AGENTS.md first          | fixed (R-4)
+2. Install      | git pull, then restow `local`                         | a pull relinks only claude and secrets  | fixed (R-1)
+3. Hello World  | nvidia-gpu-verify                                     | none; ~1 s                              | ok
+4. Real Usage   | Procedure D or E, then the check                      | none; next: lines are the commands      | ok
+5. Debug        | follows a FAIL's next: line                           | sudo dkms unrunnable for an agent;      | fixed (DX-D1, R-3)
+                |                                                       | a probe traceback spans lines           |
+6. Upgrade      | branch change (Procedure E), guard redeploy           | none; the check reads the branch itself | ok
+```
+
+### First-time developer confusion report
+
+```text
+FIRST-TIME DEVELOPER REPORT
+============================
+Persona: the operator, then an agent in a slot
+Attempting: nvidia-gpu-verify after the PR merges
+
+CONFUSION LOG:
+T+0:00  Operator: `cd ~/dotfiles && git pull`, then `nvidia-gpu-verify`: "command not found". The pull ran
+        .githooks/lib/restow.sh, which relinks only claude and secrets (AGENTS.md, Restow on pull). [addressed: R-1]
+T+0:30  Restows with `scripts/stow-deploy --headless --only local`; the check prints two FAILs for the encode and
+        decode libraries, each with its pinned install line, and a guard FAIL naming the deploy. [ok]
+T+1:30  Pastes the install, the deploy, reruns: all PASS. [ok]
+T+2:00  Agent, after a point upgrade awaiting reboot: one FAIL with `next: sudo dkms status nvidia`. The slot denies
+        sudo, so the agent stops or retries. [addressed: DX-D1, the line becomes /usr/sbin/dkms status nvidia]
+T+2:30  Agent, on a host where the probe crashed: the FAIL line embeds a multi-line traceback, and the summary list
+        breaks across lines. [addressed: R-3]
+T+3:00  Final state: succeeded, with the two fixes above.
+```
+
+### Decision ledger
+
+| ID    | Finding                                                                               | Evidence                                                                                                                                   | Options (completeness)                                                        | Chosen |
+| ----- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- | ------ |
+| DX-D1 | E-D7's `next: sudo dkms status nvidia` is unrunnable for the agent persona (reopened) | `/usr/sbin/dkms status nvidia` exits 0 with no root [measured from the slot]; the slot's PATH lacks `/usr/sbin`; `/etc/environment` has it | A) `/usr/sbin/dkms status nvidia` (10); B) keep `sudo dkms status nvidia` (7) | A      |
+| DX-D2 | The runbook's check section shows no output                                           | the runbook lists commands only; U4 produces real output                                                                                   | A) a trimmed healthy run and one FAIL with its `next:` (9); B) none (6)       | A      |
+| DX-D3 | Nothing records the check's real time on the box                                      | the 0.96 s figure comes from the draft; U4 runs the real one                                                                               | A) U4 step 1 under `gtime` (9); B) no timing (7)                              | A      |
+| DX-D4 | FAIL lines carry no stable reason token for an agent to branch on                     | the Scope Boundary rejects a JSON mode until a caller branches on fields; `qmd-gpu-verify` has none                                        | A) no tokens now (7); B) a closed set of kebab-case reasons (9)               | A      |
+
+Each row was auto-decided on its recommended option. DX-D1 reopens E-D7 on new evidence (no root needed, measured) and
+keeps its substance: a diagnosis, no install line, no reboot. DX-D4's ceiling: an agent that branches on the failure
+class parses prose. Upgrade trigger: the first caller that branches on a failure class, which is also the Scope
+Boundary's trigger for a JSON mode.
+
+Routine work within the accepted scope, recorded without a choice:
+
+- R-1: the runbook's check section opens with `cd ~/dotfiles && scripts/stow-deploy --headless --only local`, since a
+  pull relinks only `claude` and `secrets` (U5 step 1).
+- R-2: usage says the check is read-only and that a `next:` starting with `sudo` needs root (KTD8).
+- R-3: a probe with no answer is reported with its output's last line only, so every FAIL is one line (KTD8, U2).
+- R-4: the AGENTS.md section names `nvidia-gpu-verify` (U5 files).
+- R-5: the runbook names `apt-cache policy libnvidia-encode-<B>` for a deployed guard that something overrides (U5).
+
+Approval readiness: PASS (DX-D1 to DX-D4, each an authorized auto-decision under the slot's unattended rule).
+
+### Passes
+
+1. **Getting started: 6 → 8.** One command, on PATH through the `local` package, output in about a second. The gap was
+   the restow after a pull (R-1). A 10 would link the command on pull; the restow hook's package list is another
+   change's scope.
+2. **CLI design: 8 → 8.** `nvidia-gpu-verify` follows `qmd-gpu-verify`; `nvidia-deploy.sh` follows `sysctl-deploy.sh`
+   (`--check`, `--dest`). No flags to learn. Non-interactive by default; text with stable line prefixes, no JSON (Scope
+   Boundaries).
+3. **Error messages: 6 → 7.** Matrix below. DX-D1 and R-3 close the capped paths. No stable reason codes (DX-D4) keeps
+   it below 8.
+4. **Documentation: 7 → 8.** Runbook, README row, AGENTS section, and solutions doc are planned; DX-D2 adds real output
+   and R-1, R-5 the two missing steps. A 10 would keep the runbook's examples tested; nothing in the repo does that for
+   prose.
+5. **Upgrade path: 8 → 8.** The check reads the branch from the module, so a branch change needs no edit; the `src:`
+   rule covers a family NVIDIA adds later; Procedure E names every add-on; E-D4 states how a host leaves the `-server`
+   family.
+6. **Dev environment: 8 → 8.** Suites run in Linux CI; on the Mac, the apt cases skip through `require_linux`, and the
+   stubbed `timeout` removes the need for GNU `timeout`. The check is a no-op with a NOTE off Linux.
+7. **Community: 3 → 3.** A personal dotfiles repo; the solutions doc and AGENTS entry are the findability that applies.
+8. **DX measurement: 6 → 7.** DX-D3 records the real time; the check itself is the feedback loop at Procedures B, D, and
+   E. `/devex-review` on the PR can compare the measured run with this plan.
+
+### Error path matrix (agent-ready-v1)
+
+```text
+ERROR PATH MATRIX (agent-ready-v1)
+Path                         | Class      | what | fix  | recovery | code | context | trace | redaction | channel | Cap
+unknown argument             | usage      | pass | pass | N/A      | pass | N/A     | N/A   | pass      | pass    | -
+add-on missing or mismatched | check      | pass | pass | pass     | gap  | pass    | N/A   | pass      | pass    | -
+pending reboot / branch trap | check      | pass | fail | pass     | gap  | pass    | N/A   | pass      | pass    | CAP6:fix (DX-D1)
+probe dies (traceback)       | unexpected | pass | pass | pass     | gap  | pass    | fail  | pass      | pass    | CAP6:trace (R-3)
+probe or vulkaninfo hangs    | unexpected | pass | pass | pass     | gap  | pass    | N/A   | pass      | pass    | -
+guard not in effect          | check      | pass | pass | pass     | gap  | pass    | N/A   | pass      | pass    | -
+deploy without root          | usage      | pass | pass | N/A      | pass | N/A     | N/A   | pass      | pass    | -
+```
+
+`code` is the exit status for usage errors (2) and has no per-failure reason token on check lines (DX-D4). Recovery for
+every check FAIL: the check is read-only, so fix the `next:` line and rerun; a `sudo` line goes to the operator.
+Redaction: the output holds package names, versions, and paths, no secret. Channel: FAIL lines on stdout with exit 1, as
+`qmd-gpu-verify` does; usage errors on stderr with exit 2.
+
+Capped paths, before and after:
+
+- Pending reboot, as an agent sees it today: `next: sudo dkms status nvidia`, refused in the slot. After DX-D1:
+  `next: /usr/sbin/dkms status nvidia`, which prints whether the new branch's module is built for the running kernel.
+- Probe death today: `FAIL  NVENC does not answer: no answer from the probe: Traceback (most recent call last):`, with
+  the rest of the traceback on the lines after it. After R-3: the same FAIL ending with the traceback's last line (the
+  exception and its message), on one line.
+
+Permission model: the check changes nothing; the deploy writes one file under `/etc/apt/preferences.d/` as root and
+`--check` reads it without root.
+
+### Outside voice
+
+Disabled by configuration (`codex_reviews: disabled`); no outside reviewer ran.
+
+### NOT in scope
+
+- Stable reason tokens on FAIL lines (DX-D4), with the JSON mode the Scope Boundaries already defer.
+- Relinking `local` on pull: `.githooks/lib/restow.sh` owns which packages a pull restows; widening it is another
+  change.
+- A tested runbook example: no repo gate executes runbook prose.
+
+### What already exists
+
+`qmd-gpu-verify` (the output shape and summary), `scripts/sysctl-deploy.sh` (the deploy modes), README's local commands
+table and its `scripts/stow-deploy local yazi` precedent for a newly added command, and the runbook's Procedure B, D,
+and E, which the check slots into.
+
+### TODOS.md updates
+
+None: the repo tracks no TODOS file, and local TODO files stay unshared by policy.
+
+### DX implementation checklist
+
+```text
+DX IMPLEMENTATION CHECKLIST
+============================
+[ ] Time to hello world < 2 min (restow local, run the check)
+[ ] Installation is one command (the restow; the guard's deploy is one more)
+[ ] First run produces meaningful output (a verdict per package, NVENC API version, decode caps, Vulkan, guard)
+[ ] Magical moment delivered via the pinned next: line
+[ ] Every error path meets the matrix above after DX-D1 and R-3
+[ ] CLI naming is guessable without docs (nvidia-gpu-verify beside qmd-gpu-verify)
+[ ] Every parameter has a sensible default (the check takes none)
+[ ] Docs have copy-paste examples that work (runbook commands match the report's simulations)
+[ ] Examples show real use (U4's live output in the runbook)
+[ ] Upgrade path documented (Procedure E, the guard's removal for the non-server family)
+[ ] Breaking changes: none; the check and guard are new
+[ ] Works in CI without special configuration (Linux CI; apt cases skip off Linux)
+```
+
+### Implementation Tasks (DX review)
+
+Effort assumes docs at about 10x and small fixes with tests at about 20x human-to-CC time.
+
+- [ ] **DX1 (P1, human: ~30min / CC: ~5min)** — check — `next: /usr/sbin/dkms status nvidia` for the module-not-loaded,
+  pending-reboot, and branch-trap FAILs
+  - Surfaced by: Pass 3, pending reboot path (DX-D1)
+  - Files: `stow/local/dot-local/bin/nvidia-gpu-verify`, `tests/nvidia-gpu-verify.bats`
+  - Verify: the three pending-reboot scenarios and the module-not-loaded scenario assert that line
+- [ ] **DX2 (P1, human: ~30min / CC: ~5min)** — check — One-line FAIL for a probe with no answer
+  - Surfaced by: Pass 3, probe death path (R-3)
+  - Files: `stow/local/dot-local/bin/nvidia-gpu-verify`, `tests/nvidia-gpu-verify.bats`
+  - Verify: the traceback scenario prints one FAIL line per engine and no traceback line
+- [ ] **DX3 (P2, human: ~15min / CC: ~2min)** — check — Usage says read-only and who runs `sudo` lines
+  - Surfaced by: Pass 3, recovery (R-2)
+  - Files: `stow/local/dot-local/bin/nvidia-gpu-verify`
+  - Verify: `nvidia-gpu-verify --help` shows both sentences
+- [ ] **DX4 (P2, human: ~1h / CC: ~10min)** — runbook — Restow step, real output, `sudo` note, overridden-guard
+  diagnosis
+  - Surfaced by: Passes 1 and 4 (R-1, DX-D2, R-5)
+  - Files: `docs/runbooks/headless-gpu-server-nvidia-driver.md`
+  - Verify: the check section reads in that order, and its output block matches U4's run
+- [ ] **DX5 (P2, human: ~15min / CC: ~2min)** — AGENTS.md — Name `nvidia-gpu-verify` in the guard section
+  - Surfaced by: journey stage 1 (R-4)
+  - Files: `AGENTS.md`
+  - Verify: the section names the check and what it proves
+- [ ] **DX6 (P2, human: ~10min / CC: ~2min)** — live evidence — Run U4 step 1 under `gtime`
+  - Surfaced by: Pass 8 (DX-D3)
+  - Files: none committed; the PR body
+  - Verify: the PR body carries the time and peak memory
+
+_No new tasks from Passes 2, 5, 6, or 7._
+
+Prior tasks on `dev` from other plans' DX reviews are carried forward unchanged in the JSONL list.
+
+### Unresolved decisions
+
+None in this review.
+
+## DX Review Scorecard
+
+```text
++====================================================================+
+|              DX PLAN REVIEW — SCORECARD                             |
++====================================================================+
+| Dimension            | Score  | Prior  | Trend  |
+|----------------------|--------|--------|--------|
+| Getting Started      | 8/10   | 6/10   | ↑      |
+| API/CLI/SDK          | 8/10   | 8/10   | =      |
+| Error Messages       | 7/10   | 6/10   | ↑      |
+| Documentation        | 8/10   | 7/10   | ↑      |
+| Upgrade Path         | 8/10   | 8/10   | =      |
+| Dev Environment      | 8/10   | 8/10   | =      |
+| Community            | 3/10   | 3/10   | =      |
+| DX Measurement       | 7/10   | 6/10   | ↑      |
++--------------------------------------------------------------------+
+| TTHW                 | <2 min | 5-10 min [estimated] | ↑ |
+| Competitive Rank     | Champion                                     |
+| Magical Moment       | designed via the pinned next: line           |
+| Product Type         | CLI tool + runbook docs                      |
+| Mode                 | POLISH                                       |
+| Overall DX           | 7/10   | 6/10   | ↑      |
++====================================================================+
+| DX PRINCIPLE COVERAGE                                               |
+| Zero Friction      | covered (after R-1)                            |
+| Learn by Doing     | covered (DX-D2)                                |
+| Fight Uncertainty  | covered (one-line FAILs, next: per FAIL)       |
+| Opinionated + Escape Hatches | covered (no flags; the deploy's --dest) |
+| Code in Context    | covered (pinned install lines)                 |
+| Magical Moments    | covered                                        |
+| Agents Are Users   | gap: no reason tokens (DX-D4, deferred)        |
++====================================================================+
+```
+
+"Prior" is this plan's state before the review; the earlier `plan-devex-review` rows on `dev` score other plans and fall
+outside the 7-day window, so no cross-review trend applies. Community sits below 6 because the repo is personal dotfiles
+with no community surface; it does not affect adoption here. TTHW is under 10 minutes.
+
+Unresolved decisions: none.
+
 ## GSTACK REVIEW REPORT
 
-| Review         | Trigger                    | Why                             | Runs | Status      | Findings                   |
-| -------------- | -------------------------- | ------------------------------- | ---- | ----------- | -------------------------- |
-| CEO Review     | `/plan-ceo-review`         | Scope & strategy                | 0    | not run     | —                          |
-| Outside Review | codex (`/plan-eng-review`) | Independent 2nd opinion         | 0    | disabled    | `codex_reviews: disabled`  |
-| Eng Review     | `/plan-eng-review`         | Architecture & tests (required) | 1    | ISSUES OPEN | 11 issues, 0 critical gaps |
-| Design Review  | `/plan-design-review`      | UI/UX gaps                      | 0    | not run     | no UI in scope             |
-| DX Review      | `/plan-devex-review`       | Developer experience gaps       | 0    | not run     | next, per the brief        |
+| Review         | Trigger               | Why                             | Runs | Status      | Findings                                                |
+| -------------- | --------------------- | ------------------------------- | ---- | ----------- | ------------------------------------------------------- |
+| CEO Review     | `/plan-ceo-review`    | Scope & strategy                | 0    | not run     | —                                                       |
+| Outside Review | codex (plan reviews)  | Independent 2nd opinion         | 0    | disabled    | `codex_reviews: disabled`, both reviews                 |
+| Eng Review     | `/plan-eng-review`    | Architecture & tests (required) | 1    | ISSUES OPEN | 11 issues, 0 critical gaps                              |
+| Design Review  | `/plan-design-review` | UI/UX gaps                      | 0    | not run     | no UI in scope                                          |
+| DX Review      | `/plan-devex-review`  | Developer experience gaps       | 1    | ISSUES OPEN | score: 6/10 → 7/10, TTHW: 5-10 min [estimated] → <2 min |
 
 Earlier `dev` entries in the review log belong to other plans and fall outside the 7-day window.
 
-- **OUTSIDE COVERAGE:** codex, plan-review phase, disabled by configuration; no findings, and no native fallback counts
-  as outside coverage.
-- **VERDICT:** no review CLEAR yet. ISSUES OPEN here means mapped work: every finding has an applied plan change and a
-  task, with 0 unresolved decisions. Eng review ran; `/plan-devex-review` is next.
+- **OUTSIDE COVERAGE:** codex, plan-review phase, disabled by configuration for both reviews; no findings, and no native
+  fallback counts as outside coverage.
+- **VERDICT:** no review CLEAR yet. ISSUES OPEN means mapped work: every finding has an applied plan change and a task,
+  with 0 unresolved decisions. Eng and DX reviews ran; the plan's reviews are complete, and the build starts.
 
 NO UNRESOLVED DECISIONS
