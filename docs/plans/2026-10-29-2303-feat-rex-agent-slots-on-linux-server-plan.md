@@ -2182,5 +2182,5 @@ NO UNRESOLVED DECISIONS
 | # | Review | Of | Model, effort | Started (UTC) | Finished (UTC) | Verdict |
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `ce-code-review` | dotfiles#538 (U7) at `0e4ad9e` | Opus, `high` | 2026-11-26 16:58 | | |
-| 2 | `/devex-review` | dotfiles#538 (U7) at `0e4ad9e` | Opus, `high` | 2026-11-26 16:58 | | |
+| 2 | `/devex-review` | dotfiles#538 (U7) at `0e4ad9e` | Opus, `high` | 2026-11-26 16:58 | 2026-11-26 17:06 | 6/10; 2 P1, 5 P2, 6 P3; 11 in scope, P1-2 and P3-11 out of scope ([comment](https://github.com/brettdavies/dotfiles/pull/538#issuecomment-7198610482)) |
 | 3 | `/cso` | dotfiles#538 (U7) at `0e4ad9e` | Opus, `xhigh` | 2026-11-26 16:58 | 2026-11-26 17:02 | Nothing exploitable; partial (`host-jobs-enable.sh`, five `agent-slot-rex` libs, most of `contract.sh` and the tests unread); 2 notes, no P0/P1 ([comment](https://github.com/brettdavies/dotfiles/pull/538#issuecomment-7198480323)) |
