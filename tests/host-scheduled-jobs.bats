@@ -209,7 +209,7 @@ EOF
   _unit_key "$pkg" Service Environment | grep -qx REX_CGROUP_DELEGATED=1
 }
 
-@test "a stop of the Rex server saves the operator's tabs first, except while the user manager itself stops" {
+@test "a stop of the Rex server saves the operator's tabs first, unless the user manager answers that it is stopping" {
   local line script home=$BATS_TEST_TMPDIR/home bin=$BATS_TEST_TMPDIR/bin saves=$BATS_TEST_TMPDIR/saves
   line=$(_unit_key "$REX_SERVER" Service ExecStop)
   [[ $line == "-/bin/sh -c '"*"'" ]]
@@ -218,15 +218,19 @@ EOF
   script=${script//'$$'/'$'}
   script=${script//%h/$home}
   script=${script//\/usr\/bin\/systemctl/$bin/systemctl}
+  script=${script//\/usr\/bin\/timeout/$bin/timeout}
   mkdir -p "$home/.local/bin" "$bin"
   printf '#!/bin/sh\necho "$*" >>"%s"\n' "$saves" >"$home/.local/bin/agent-slot-rex"
   printf '#!/bin/sh\n[ "$*" = "--user is-system-running" ] && echo "$STUB_MANAGER_STATE"\n' >"$bin/systemctl"
-  chmod 755 "$home/.local/bin/agent-slot-rex" "$bin/systemctl"
+  printf '#!/bin/sh\n[ -z "$STUB_TIMED_OUT" ] || exit 124\nshift\nexec "$@"\n' >"$bin/timeout"
+  chmod 755 "$home/.local/bin/agent-slot-rex" "$bin/systemctl" "$bin/timeout"
   STUB_MANAGER_STATE=degraded sh -c "$script"
   [ "$(cat "$saves")" = "save --output json" ]
   : >"$saves"
   STUB_MANAGER_STATE=stopping sh -c "$script"
   [ ! -s "$saves" ]
+  STUB_MANAGER_STATE=stopping STUB_TIMED_OUT=1 sh -c "$script"
+  [ "$(cat "$saves")" = "save --output json" ]
 }
 
 @test "the save service gives up on a save that outlasts the timer's interval" {
