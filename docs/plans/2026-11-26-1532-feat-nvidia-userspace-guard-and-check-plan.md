@@ -397,3 +397,4 @@ flowchart TB
 ## Review log
 
 - 2026-11-26 15:32 CST: plan written.
+- 2026-11-26 15:35 CST: `/compound-engineering:ce-doc-review mode:non-interactive` started.
