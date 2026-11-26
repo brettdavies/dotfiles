@@ -135,19 +135,24 @@ Not in scope for this brief:
   decides which ffmpeg builds work. `cuvidGetDecoderCaps` (libnvcuvid, under a retained CUDA primary context) reports
   H.264, HEVC, and AV1 decode support. Neither opens a session, so neither takes one of GeForce's capped NVENC sessions
   from a running encode. Measured on the server with the 580 libraries unpacked from their `.deb`: `api=13.0`, all three
-  codecs supported, 0.47 s and 110 MB RSS. The block runs as `python3 -I -B`, the shape `charcount` sets for a stdlib
-  Python tool in this package. The check stays bash because its other steps are command calls, as in `qmd-gpu-verify`.
+  codecs supported, 0.47 s and 110 MB RSS. The block runs as `python3 -I -B`, so neither the user's site-packages nor
+  the working directory can shadow `ctypes`, and no bytecode lands beside the interpreter. The check stays bash because
+  its other steps are command calls, as in `qmd-gpu-verify`.
 - KTD4. **Vulkan is proven with `vulkaninfo --summary`.** It must list a device with `driverName = NVIDIA` and
   `driverInfo` equal to the loaded version. When `vulkaninfo` is absent the step is SKIP, not FAIL: the runbook makes
   `vulkan-tools` optional, and KTD2 already fails a missing `libnvidia-gl`.
 - KTD5. **The guard pins named driver families to -1, with branch number and `-open` both optional, from any origin.**
-  `config/apt/preferences.d/nvidia-server-branch.pref` holds one stanza: `Package:` with two regexes, one over the
+  `config/apt/preferences.d/nvidia-server-branch.pref` holds one stanza: `Package:` with three regexes, one over the
   `nvidia-` families (driver, headless, headless-no-dkms, dkms, kernel-common, kernel-source, kernel-open, open, utils,
-  compute-utils) and one over the `libnvidia-` families (cfg1, common, compute, decode, encode, extra, fbc1, gl,
-  gpucomp), then `Pin: version *` and `Pin-Priority: -1`. apt's regexes are POSIX ERE with no negative lookahead, so
-  "anything without `-server`" is not expressible. Naming families also keeps `nvidia-fabricmanager-NNN`,
-  `libnvidia-nscq-NNN`, `libnvidia-egl-wayland1`, `libnvidia-container*`, and `nvidia-container-toolkit` installable. A
-  draft run against this box's real apt (`-o Dir::Etc::PreferencesParts`) did three things:
+  compute-utils), one over the `libnvidia-` families (cfg1, common, compute, decode, encode, extra, fbc1, gl, gpucomp),
+  and `^nvidia-firmware(-[0-9]+)?(-[0-9][0-9.]*)?$` for the non-server firmware, then `Pin: version *` and
+  `Pin-Priority: -1`. The firmware form matches `nvidia-firmware-580-580.178.04` but not
+  `nvidia-firmware-580-server-580.178.04`; the non-server firmware Breaks the `-server` one, and a simulated install of
+  it alone removes 12 packages, the whole `-server` driver, while pulling in no other pinned family. apt's regexes are
+  POSIX ERE with no negative lookahead, so "anything without `-server`" is not expressible. Naming families also keeps
+  `nvidia-fabricmanager-NNN`, `libnvidia-nscq-NNN`, `libnvidia-egl-wayland1`, `libnvidia-container*`, and
+  `nvidia-container-toolkit` installable. A draft run against this box's real apt (`-o Dir::Etc::PreferencesParts`) did
+  three things:
   - It refused `libnvidia-encode-580`, `libnvidia-encode`, `nvidia-open`, `nvidia-driver-580-open`,
     `nvidia-headless-580-open`, and `cuda-drivers`.
   - It left Procedure D (2 new, 0 removed), the 615 swap with add-ons (14 in, 12 out), `cuda-toolkit-12-8`, `cuda`, and
@@ -166,8 +171,12 @@ Not in scope for this brief:
 - KTD8. **Output follows `qmd-gpu-verify`.** Lines start with `PASS`, `FAIL`, `SKIP`, `INFO`, or `NOTE`. Every FAIL is
   followed by an indented `next:` line holding one command that is safe to paste. A summary line closes the run. Exit 0
   means no FAIL, 1 means at least one, and 2 is a usage error. `-h` and `--help` print usage. A missing package's
-  `next:` pins `=<Debian version>`, taken from an installed package of the set at the loaded version, so the fix never
-  reaches the trap.
+  `next:` pins `=<Debian version>`, taken from an installed package of the branch (`nvidia-kernel-common-<B>-server` or
+  one of the five) at the loaded version, so the fix never reaches the trap. When no such package exists but some
+  `-server` NVIDIA userspace is installed, a reboot is pending: after an upgrade within the branch, or after a branch
+  change whose new module is not loaded yet. The package step then prints one FAIL naming both versions with
+  `next: sudo reboot` and no install line, which could undo a branch change, and the NVENC, NVDEC, and Vulkan steps
+  print SKIP naming the pending reboot, since a userspace at another version than the module fails them all.
 - KTD9. **The guard's suite drives real apt in a throwaway repository.** It builds a flat `file:` repo of stub packages
   in `setup_file`, with every `Dir::State`, `Dir::Cache`, and `Dir::Etc` path redirected into `BATS_FILE_TMPDIR` and
   `Debug::NoLocking`. It runs `apt-get update` once (0.6 s, no root), and the tests assert `apt-cache policy` candidates
@@ -235,8 +244,8 @@ flowchart TB
   - Sandbox apt with the guard gives no candidate for each must-block name: `libnvidia-encode-580`,
     `libnvidia-compute-580`, `libnvidia-gl-580`, `nvidia-utils-580`, `nvidia-headless-580-open`,
     `nvidia-headless-no-dkms-580-open`, `nvidia-driver-580-open`, `nvidia-dkms-580-open`, `nvidia-kernel-open-580`,
-    `libnvidia-encode-620`, and the unversioned `libnvidia-encode`, `libnvidia-compute`, `nvidia-open`,
-    `nvidia-driver-open`, `nvidia-dkms-open`.
+    `nvidia-firmware-580-580.178.04`, `nvidia-firmware-580`, `libnvidia-encode-620`, and the unversioned
+    `libnvidia-encode`, `libnvidia-compute`, `nvidia-open`, `nvidia-driver-open`, `nvidia-dkms-open`.
   - Sandbox apt with the guard keeps a candidate for each must-allow name: every `-server` and `-server-open` sibling of
     the names above, `nvidia-firmware-580-server-580.178.04`, `nvidia-container-toolkit`, `libnvidia-container1`,
     `libnvidia-egl-wayland1`, `nvidia-fabricmanager-580`, `libnvidia-nscq-580`, `cuda-toolkit-12-8`, `nvidia-gds-12-8`.
@@ -261,10 +270,10 @@ flowchart TB
   2. Steps in the High-Level Technical Design order. Shell constructs stay within bash 3.2, so the bash 4.4 guard block
      is not needed.
   3. The probe block prints one machine-shaped line per engine (`nvenc ok api=13.0`, `nvdec ok h264=yes ...`,
-     `... load-failed <reason>`). The bash side turns each into PASS or FAIL with a `next:` line: install the package,
-     or read the runbook's Procedure D.
-- **Patterns to follow:** `stow/local/dot-local/bin/qmd-gpu-verify` (output and summary); `charcount` (stdlib python3);
-  `tests/qmd-serve.bats` (stubbed `nvidia-smi`).
+     `... load-failed <reason>`). The bash side turns each into PASS or FAIL with a `next:` line: the pinned install
+     when the package is missing, or the `ldconfig -p` lookup for the library when it is installed.
+- **Patterns to follow:** `stow/local/dot-local/bin/qmd-gpu-verify` (output and summary); `tests/qmd-serve.bats`
+  (stubbed `nvidia-smi`).
 - **Execution note:** stubs for `dpkg-query`, `apt-cache`, `vulkaninfo`, and `python3` are written once in `setup_file`,
   mode 555. Each reads its answers from files the test writes, so a test changes only the answer it is about. `python3`
   is stubbed only in the tests that need a canned probe, so the real-probe scenario runs real Python.
@@ -274,8 +283,12 @@ flowchart TB
   - `libnvidia-encode-580-server` not installed: FAIL naming it, with `next:` pinning
     `libnvidia-encode-580-server=580.178.04-0ubuntu0.24.04.1`. Exit 1.
   - The same check with a 615.71.09 module and `-615-server` packages passes. That proves nothing is pinned to 580.
-  - Every package at 580.196.07 while the module is 580.178.04: FAIL reporting a pending reboot, not five missing
-    packages.
+  - Every package at 580.196.07 while the module is 580.178.04: one FAIL reporting a pending reboot and three SKIPs
+    (NVENC, NVDEC, Vulkan), not five mismatched packages.
+  - Three packages at 580.196.07 and encode and decode missing, module 580.178.04: the pending-reboot FAIL and no
+    install `next:` line.
+  - A 580.178.04 module with the `-620-server` set installed and no `-580-server` package: the pending-reboot FAIL, and
+    no `next:` line that installs a 580 package.
   - One package at another version while the rest match: FAIL naming that package and both versions.
   - No module loaded but `nvidia-kernel-common-580-server` installed: FAIL module not loaded, pointing at Procedure B.
   - No module and no NVIDIA server package: NOTE and exit 0, with no other step run.
@@ -317,7 +330,8 @@ flowchart TB
   2. Rerun it with `LD_LIBRARY_PATH` pointing at the 580 encode and decode libraries unpacked from `apt-get download`.
      The two probes then PASS (`api=13.0`, three codecs), which proves the ctypes calls against the real driver.
   3. Run `apt-get install -s` with `-o Dir::Etc::PreferencesParts` pointing at a copy of `/etc/apt/preferences.d` plus
-     the repo's guard. The traps must fail to resolve, and the Procedure D and branch-swap sets must stay unchanged.
+     the repo's guard. The traps, `nvidia-firmware-580-580.178.04` among them, must fail to resolve, and the Procedure D
+     and branch-swap sets must stay unchanged.
   4. Run `scripts/nvidia-deploy.sh --check`, which reports the guard as not deployed (exit 1).
 - **Execution note:** no session-opening encode before 2026-11-28 12:00 CST; the probes open none.
 - **Test expectation:** none -- this unit measures U1 and U2 on the real box.
@@ -338,17 +352,20 @@ flowchart TB
 - **Approach:**
   1. **Current canonical state:** the five-package set at the driver's exact version, the guard, and the check as the
      arbiter.
-  2. **Procedure D:** both libraries named at `=$V` and `NEEDRESTART_MODE=l`. It ran once, on 2026-10-14, and the
-     libraries were removed after the Remotion consumer gained nothing; the runbook states that fact plainly. Add a
-     table of NVENC API version, nv-codec-headers, minimum driver, and example builds (BtbN n8.1 versus n9.0,
-     jellyfin-ffmpeg, Ubuntu's ffmpeg).
+  2. **Procedure D:** both libraries named at `=$V` and `NEEDRESTART_MODE=l`. The runbook states in present tense that
+     the encode and decode libraries are optional, absent until a consumer needs NVENC or NVDEC, and installed by
+     Procedure D; the 2026-10-14 run stays in the report and git history. Add a table of NVENC API version,
+     nv-codec-headers, minimum driver, and example builds (BtbN n8.1 versus n9.0, jellyfin-ffmpeg, Ubuntu's ffmpeg).
   3. **Procedure E, changing driver branch:** every add-on named with the branch as `B`, the simulation's expected
      shape, DKMS status, reboot, `qmd-llama-rebuild.sh`, the check, and rollback by naming the old branch's set. Branch
      type matters: prefer an NVIDIA Long Term Support or Production branch from noble-updates or noble-security, since
      Ubuntu transitions a New Feature Branch to the next supported one.
   4. **Procedure B:** gains the check.
-  5. **"What this runbook deliberately does not do":** the check is a command, still no timer.
-  6. Every new section is written to the repo's present-tense, no-history rule.
+  5. **A.4's closing lockdown sentence:** names the apt guard (`config/apt/preferences.d/nvidia-server-branch.pref`,
+     deployed by `scripts/nvidia-deploy.sh`) as the one apt pin, and keeps "no unattended-upgrades blacklist, no systemd
+     timers", since the GPU host plan's U2 owns the blacklist.
+  6. **"What this runbook deliberately does not do":** the check is a command, still no timer.
+  7. Every new section is written to the repo's present-tense, no-history rule.
 - **Test expectation:** none -- prose. The release-docs and markdown gates in `pre-push` check it.
 - **Verification:** every command in the runbook matches a simulation in the report or a script in this PR.
 
@@ -398,3 +415,8 @@ flowchart TB
 
 - 2026-11-26 15:32 CST: plan written.
 - 2026-11-26 15:35 CST: `/compound-engineering:ce-doc-review mode:non-interactive` started.
+- 2026-11-26 15:48 CST: `/compound-engineering:ce-doc-review` ended (lite: one reviewer, coherence, feasibility, and
+  scope lenses). Applied 4 fixes: the guard gains the non-server firmware family, whose install alone removes the whole
+  `-server` driver; the check reports a pending reboot with no install line whenever no package of the loaded branch is
+  at the loaded version; the runbook unit rewrites A.4's "No apt pinning"; Procedure D's text stays present tense. One
+  advisory: KTD3 credited `charcount` with isolation flags it lacks, and that clause is removed.
