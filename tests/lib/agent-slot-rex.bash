@@ -57,7 +57,7 @@ agent_slot_rex_setup() {
   export AGENT_SLOT_REX_REXURRECT=$STUBS/rexurrect
   export AGENT_SLOT_REX_SELF=$STUBS/agent-slot-rex
   export AGENT_SLOT_REX_APP_PATHS=
-  export AGENT_SLOT_REX_STATE_DIR=$T/state
+  export AGENT_SLOT_REX_STATE_DIR=$T/state REXURRECT_STATE_DIR=$T/rexurrect
   export AGENT_SLOT_REX_SERVER=testserver
   export AGENT_SLOT_REX_RETRY_DELAY=0
   export AGENT_SLOT_REX_PRIMES=$STUBS/primes AGENT_SLOT_REX_LOGIN_SHELL=$STUBS/login-shell

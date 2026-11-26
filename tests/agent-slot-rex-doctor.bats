@@ -44,6 +44,14 @@ journal_line() {
     >>"$STATE/reconcile.log"
 }
 
+# save_line OK: one save journal line, failed with rexurrect-failed unless OK is true.
+save_line() {
+  jaq -n -c --argjson ok "$1" '{at: "2026-11-02T23:20:00Z", by: "save", pid: 1, ok: $ok, ms: 6400, changed: false,
+    plan: null, skipped: null, rexurrect: (if $ok then "done" else "failed" end), primes: null,
+    error: (if $ok then null else {reason: "rexurrect-failed", message: "rexurrect save exited 1: refused",
+      log: "/r/rexurrect.log"} end)}' >>"$STATE/save.log"
+}
+
 # startup_record INSTANCE REXURRECT: the start-up step's record for a Rex server instance.
 startup_record() {
   jaq -n -c --arg i "$1" --arg r "$2" '{instance: $i, rexurrect: $r, at: "2026-11-02T23:16:07Z"}' >"$STATE/startup.json"
@@ -62,6 +70,7 @@ startup_record() {
 
 @test "doctor names each inactive unit in a finding with the command that starts it" {
   unit agent-slot-reconcile.timer inactive
+  unit agent-slot-save.timer inactive
   unit rex-tab-numbers.service failed
   unit rex-login-server.service inactive
   doctor
@@ -69,6 +78,8 @@ startup_record() {
   jaq -e '[.findings[] | {reason, severity, host, command: .next_step.command}] == [
     {reason: "reconcile-timer-inactive", severity: "error", host: "server",
      command: "systemctl --user enable --now agent-slot-reconcile.timer"},
+    {reason: "save-timer-inactive", severity: "error", host: "server",
+     command: "systemctl --user enable --now agent-slot-save.timer"},
     {reason: "tab-numbers-inactive", severity: "error", host: "server",
      command: "systemctl --user enable --now rex-tab-numbers.service"},
     {reason: "login-server-inactive", severity: "error", host: "server",
@@ -95,14 +106,14 @@ startup_record() {
     and (.message | contains("pid 4242") and contains("MainPID 0"))' <<<"$(finding rex-server-foreign)"
 }
 
-@test "doctor reports rex-restart-pending with the four steps in order when the installed Rex is newer than the server" {
+@test "doctor reports rex-restart-pending with the three steps in order when the installed Rex is newer than the server" {
   rex_versions 0.0.2 0.0.1
   printf 'rex 0.0.2\n' >"$AGENT_SLOT_REX_VERIFIED_VERSIONS"
   doctor
   [ "$status" -eq 0 ]
   jaq -e '.severity == "warning" and .value == "0.0.1"
-    and .next_step.command == "agent-slot-rex save && systemctl --user restart rex-server.service"
-    and (.message | test("1\\) update Rex.app and the iOS app to at least 0.0.2.*2\\) agent-slot-rex save.*3\\) systemctl --user restart rex-server.service.*4\\) rerun the two-machine checklist"))' \
+    and .next_step.command == "systemctl --user restart rex-server.service"
+    and (.message | test("1\\) update Rex.app and the iOS app to at least 0.0.2.*2\\) systemctl --user restart rex-server.service, which saves the operator.s own tabs as the server stops.*3\\) rerun the two-machine checklist"))' \
     <<<"$(finding rex-restart-pending)"
 }
 
@@ -208,9 +219,41 @@ startup_record() {
     doctor
     [ -z "$(finding own-tabs-unrestored)" ]
   done
+  startup_record "$REX_STUB_INSTANCE" stopped
+  mkdir -p "$REXURRECT_STATE_DIR"
+  printf '%s\n' "$REX_STUB_INSTANCE" >"$REXURRECT_STATE_DIR/restored-instances"
+  doctor
+  [ -z "$(finding own-tabs-unrestored)" ]
   startup_record 99999999-0000-0000-0000-000000000000 skipped
   doctor
   [ -z "$(finding own-tabs-unrestored)" ]
+}
+
+@test "doctor reports save-paused after a failed restore rexurrect never recorded, which pauses every save" {
+  mkdir -p "$REXURRECT_STATE_DIR"
+  startup_record "$REX_STUB_INSTANCE" failed
+  printf '99999999-0000-0000-0000-000000000000\n' >"$REXURRECT_STATE_DIR/restored-instances"
+  doctor
+  [ "$status" -eq 0 ]
+  jaq -e --arg i "$REX_STUB_INSTANCE" '.severity == "warning" and .value == $i
+    and .next_step.command == "systemctl --user restart rex-server.service"' <<<"$(finding save-paused)"
+  assert_error_shape "$(finding save-paused)"
+  printf '%s restore-failed\n' "$REX_STUB_INSTANCE" >"$REXURRECT_STATE_DIR/restored-instances"
+  doctor
+  [ -z "$(finding save-paused)" ]
+}
+
+@test "doctor reports the newest save's failure, and nothing once a later save succeeds" {
+  save_line false
+  doctor
+  [ "$status" -eq 1 ]
+  jaq -e --arg log "$STATE/save.log" '.severity == "error" and .value == $log and .log == "/r/rexurrect.log"
+    and (.message | contains("refused")) and .next_step.command == "agent-slot-rex save"' \
+    <<<"$(finding rexurrect-failed)"
+  assert_error_shape "$(finding rexurrect-failed)"
+  save_line true
+  doctor
+  [ -z "$(finding rexurrect-failed)" ]
 }
 
 @test "a missing rexurrect is a warning naming its deploy script" {
@@ -300,11 +343,12 @@ esac'
   printf '0\n' >"$STUBS/units/rex-server.service.pid"
   rex_versions 0.0.2
   unit agent-slot-reconcile.timer inactive
+  unit agent-slot-save.timer inactive
   printf '0::/user.slice/user-1000.slice/user@1000.service/app.slice/rex-server.service\n' >"$STUBS/cgroup.txt"
   startup_record "$REX_STUB_INSTANCE" skipped
   rm "$STUBS/rexurrect"
   doctor
-  [ "$(jaq '.findings | length' <<<"$output")" -ge 6 ]
+  [ "$(jaq '.findings | length' <<<"$output")" -ge 7 ]
   local f
   while IFS= read -r f; do
     assert_error_shape "$f"

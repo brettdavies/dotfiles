@@ -4,6 +4,8 @@
 # One snapshot per save. The Linux server saves every 2 minutes, so 720 keeps a day of snapshots to restore from.
 keep = 720
 
-# How long auto-restore looks for the blank session Rex.app opens on an empty server. Rex brings its own sessions back
-# across a restart, so the server is seldom empty, and the default 30 s holds up the start-up step for nothing.
+# How long auto-restore looks for the blank session Rex.app opens when it connects to an empty server. Rex brings its
+# own sessions back across a restart, on the Linux server and on a Mac that runs its own, so the server is seldom empty
+# and the default 30 s holds up the start-up for nothing. A server that does start empty keeps Rex.app's blank session
+# beside the restored ones when it turns up after the 3 s.
 app_session_watch = 3

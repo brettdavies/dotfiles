@@ -6,6 +6,8 @@
 # Run: bats tests/rexurrect-deploy.bats
 # run-tests: parallel
 
+bats_require_minimum_version 1.5.0
+
 REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
 SCRIPT="$REPO_ROOT/scripts/rexurrect-deploy.sh"
 ZSHRC="$REPO_ROOT/stow/zsh/dot-zshrc"
@@ -55,6 +57,7 @@ setup_file() {
 #!/usr/bin/env bash
 printf 'gh %s\n' "$*" >>"$CALLS"
 if [ "$1 $2" = "release download" ]; then
+  [ "${STUB_DOWNLOAD_RC:-0}" -eq 0 ] || exit "$STUB_DOWNLOAD_RC"
   shift 2
   while [ "$#" -gt 0 ]; do
     case $1 in
@@ -95,7 +98,7 @@ nothing_installed() {
   [ -n "$(find "$BIN" -perm 0755)" ]
   cmp "$GOOD_PLUGIN" "$PLUGIN"
   grep -qx "gh release download v0.6.0 --repo cemcatik/rexurrect --pattern $ARCHIVE --dir .*" "$CALLS"
-  grep -qx "gh attestation verify .*/$ARCHIVE --repo cemcatik/rexurrect" "$CALLS"
+  grep -qx "gh attestation verify .*/$ARCHIVE --repo cemcatik/rexurrect --signer-workflow cemcatik/rexurrect/.github/workflows/release.yml --source-ref refs/tags/v0.6.0" "$CALLS"
   [[ $output == *"OK: rexurrect 0.6.0 installed at $BIN"* ]]
   [ ! -e "$RAN_LOG" ]
 }
@@ -109,8 +112,32 @@ nothing_installed() {
   [[ $output == *"$(sha "$BATS_FILE_TMPDIR/good/$ARCHIVE")"* ]]
   [[ $output == *"$(sha "$STUB_ARCHIVE")"* ]]
   [[ $output == *"nothing was installed"* ]]
-  [[ $output == *"scripts/rexurrect-deploy.sh"* ]]
+  [[ $output == *"https://github.com/cemcatik/rexurrect/releases/tag/v0.6.0"* ]]
+  [[ $output != *"Rerun"* ]]
   [ "$(grep -c '^gh attestation' "$CALLS")" -eq 0 ]
+}
+
+@test "a failed download names the rerun command with the absolute --dest it was given" {
+  export STUB_DOWNLOAD_RC=1
+  cd "$BATS_TEST_TMPDIR"
+  run "$DEPLOY" --dest dest
+  [ "$status" -eq 1 ]
+  nothing_installed
+  [[ $output == *"Rerun: cd ~/dotfiles && scripts/rexurrect-deploy.sh --dest $DEST"* ]]
+}
+
+@test "a relative --dest installs under the current directory and names the absolute paths" {
+  cd "$BATS_TEST_TMPDIR"
+  run "$DEPLOY" --dest dest
+  [ "$status" -eq 0 ]
+  cmp "$GOOD_BINARY" "$BIN"
+  [[ $output == *"installed at $BIN, recorder at $PLUGIN"* ]]
+}
+
+@test "--help says what the deploy installs and that gh must be signed in" {
+  run "$DEPLOY" --help
+  [ "$status" -eq 0 ]
+  [[ $output == *"~/.local/bin/rexurrect"* && $output == *"gh auth login"* ]]
 }
 
 @test "a failed attestation installs nothing and prints the verify command to rerun" {
@@ -150,11 +177,12 @@ nothing_installed() {
   [ ! -e "$RAN_LOG" ]
 }
 
-@test "off Linux the deploy does nothing" {
+@test "off Linux the deploy does nothing and names where the Mac gets rexurrect, on stderr" {
   export STUB_UNAME=Darwin
-  run "$DEPLOY" --dest "$DEST"
+  run --separate-stderr "$DEPLOY" --dest "$DEST"
   [ "$status" -eq 0 ]
-  [[ $output == *"NOTE:"*"Darwin"* ]]
+  [ -z "$output" ]
+  [[ $stderr == *"NOTE:"*"Darwin"*"brew install cemcatik/tap/rexurrect"* ]]
   nothing_installed
   [ ! -s "$CALLS" ]
 }
@@ -184,8 +212,10 @@ end" ]
 }
 
 @test "the rexurrect installed here accepts the stowed config, which it reads before it reaches a server" {
-  local bin=$HOME/.local/bin/rexurrect
+  local bin=$HOME/.local/bin/rexurrect pin
   [ -x "$bin" ] || skip "rexurrect not installed"
+  pin=$(sed -n 's/^REXURRECT_BINARY_SHA256=//p' "$SCRIPT")
+  [ "$(sha "$bin")" = "$pin" ] || skip "the rexurrect installed here is not the pinned build; scripts/rexurrect-deploy.sh installs it"
   REXURRECT_STATE_DIR=$BATS_TEST_TMPDIR/state REXURRECT_CONFIG=$CONFIG REX_SERVER=unix://$BATS_TEST_TMPDIR/no.sock \
     run "$bin" restore --dry-run </dev/null
   [ "$status" -ne 0 ]

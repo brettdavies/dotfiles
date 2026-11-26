@@ -1,7 +1,7 @@
 # shellcheck shell=bash disable=SC2034 # its globals are read by the files that source it
 # doctor: the slot layer on the Linux server. It checks the rex CLI and the Rex server it answers for, the units that
-# keep the layer running, rexurrect, the reconcile journal, and where the agent-slots tmux server runs, then adds
-# agent-slot's own doctor.
+# keep the layer running, rexurrect and its saves, the reconcile journal, and where the agent-slots tmux server runs,
+# then adds agent-slot's own doctor.
 #
 # Each finding is an error object (contract_error_json) plus a severity and the host it is about. A missing
 # prerequisite never stops the other checks. A Rex version that differs from scripts/agent-slot/verified-versions only
@@ -14,8 +14,12 @@ DOCTOR_SLOT='{}'
 doctor_finding() {
   local severity=$1
   shift
-  DOCTOR_FINDINGS+=("$(contract_error_json "$@" \
-    | contract_json -c --arg s "$severity" '. + {severity: $s, host: "server"}')")
+  doctor_add "$severity" "$(contract_error_json "$@")"
+}
+
+# Usage: doctor_add <error | warning> <error-json>
+doctor_add() {
+  DOCTOR_FINDINGS+=("$(contract_json -c --arg s "$1" '. + {severity: $s, host: "server"}' <<<"$2")")
 }
 
 # Usage: doctor_systemctl <systemctl args...>; systemctl, reaching the user manager from a shell that lacks its
@@ -74,25 +78,29 @@ $AR_REX_UNIT started (MainPID ${unit_pid:-0}), so the service cannot take the so
       --command "$AR_REXURRECT save && rex --autostart=false server stop && systemctl --user restart $AR_REX_UNIT"
   fi
   if [[ -n $version && -n $REX_SERVER_VERSION && $version != "$REX_SERVER_VERSION" ]]; then
-    steps="1) update Rex.app and the iOS app to at least $version, 2) agent-slot-rex save,"
-    steps+=" 3) systemctl --user restart $AR_REX_UNIT, 4) rerun the two-machine checklist"
+    steps="1) update Rex.app and the iOS app to at least $version, 2) systemctl --user restart $AR_REX_UNIT, which"
+    steps+=" saves the operator's own tabs as the server stops, 3) rerun the two-machine checklist"
     doctor_finding warning rex-restart-pending "the installed rex is $version but the running Rex server is \
 $REX_SERVER_VERSION; to move the server to it, in order: $steps" --value "$REX_SERVER_VERSION" --action ask-operator \
-      --command "agent-slot-rex save && systemctl --user restart $AR_REX_UNIT"
+      --command "systemctl --user restart $AR_REX_UNIT"
   fi
   doctor_check_startup
 }
 
 # The start-up step records, for the server instance it ran in, whether rexurrect restored the operator's own tabs.
+# A record that pauses every save until a restart is a finding too; none yet is the start-up step still running. A
+# restore stopped at its bound after rexurrect named the instance restored the tabs, and saves run there.
 doctor_check_startup() {
-  local outcome
-  outcome=$(startup_record_outcome "$REX_SERVER_INSTANCE")
-  case $outcome in
+  save_gate_record
+  case $SAVE_OUTCOME in
     stopped | skipped)
+      [[ -n $SAVE_SKIP ]] || return 0
       doctor_finding warning own-tabs-unrestored "the start-up step did not restore the operator's own tabs into this \
-Rex server (rexurrect: $outcome); a restart of the server runs it again" --value "$outcome" --action ask-operator \
-        --command "systemctl --user restart $AR_REX_UNIT"
+Rex server (rexurrect: $SAVE_OUTCOME); a restart of the server runs it again" --value "$SAVE_OUTCOME" \
+        --action ask-operator --command "systemctl --user restart $AR_REX_UNIT"
       ;;
+    '') ;;
+    *) [[ -z $SAVE_SKIP ]] || doctor_add warning "$SAVE_SKIP" ;;
   esac
 }
 
@@ -100,6 +108,9 @@ doctor_check_units() {
   doctor_active --user "$AR_RECONCILE_TIMER" || doctor_finding error reconcile-timer-inactive "$AR_RECONCILE_TIMER is \
 not running, so nothing corrects a slot tab that a missed launch or teardown left wrong" \
     --value "$AR_RECONCILE_TIMER" --command "systemctl --user enable --now $AR_RECONCILE_TIMER"
+  doctor_active --user "$AR_SAVE_TIMER" || doctor_finding error save-timer-inactive "$AR_SAVE_TIMER is not running, \
+so only a stop of $AR_REX_UNIT saves the operator's own tabs" \
+    --value "$AR_SAVE_TIMER" --command "systemctl --user enable --now $AR_SAVE_TIMER"
   doctor_active --user "$AR_TAB_NUMBERS_UNIT" || doctor_finding error tab-numbers-inactive "$AR_TAB_NUMBERS_UNIT is \
 not running, so tabs carry no position number" \
     --value "$AR_TAB_NUMBERS_UNIT" --command "systemctl --user enable --now $AR_TAB_NUMBERS_UNIT"
@@ -112,6 +123,17 @@ doctor_check_rexurrect() {
   [[ -x $AR_REXURRECT ]] && return 0
   doctor_finding warning rexurrect-missing "rexurrect is not installed at $AR_REXURRECT, so the operator's own tabs \
 do not come back after a Rex restart" --value "$AR_REXURRECT" --command "cd ~/dotfiles && scripts/rexurrect-deploy.sh"
+}
+
+# A newest save that failed left the last snapshot older than the tabs; its logged error is the finding.
+doctor_check_saves() {
+  local log=$AR_SAVE_LOG last
+  [[ -s $log && -x $AR_REXURRECT ]] || return 0
+  last=$(tail -n 1 "$log" | contract_json -c 'select(.ok == false)' 2>/dev/null || true)
+  [[ -n $last ]] || return 0
+  doctor_finding error "$(contract_json -r '.error.reason' <<<"$last")" "the newest save, at \
+$(contract_json -r '.at' <<<"$last"), failed: $(contract_json -r '.error.message' <<<"$last")" --value "$log" \
+    --log "$(contract_json -r '.error.log // ""' <<<"$last")" --command "agent-slot-rex save"
 }
 
 # A running timer whose journal has no recent pass, or whose last three passes failed or found the reconcile lock
@@ -135,7 +157,8 @@ good pass: $verdict" --value "$log" --command "agent-slot-rex restore"
 
 # The agent-slots tmux server dies with the unit whose cgroup holds it, so a service unit's is a hazard; a scope of its
 # own or a login session's is not. The unit is the path's first segment after its slices: the Rex server makes cgroups
-# of its own inside its unit's, one per terminal. One that runs and does not answer is reported as such; none running is no finding.
+# of its own inside its unit's, one per terminal. One that runs and does not answer is reported as such; none running
+# is no finding.
 doctor_check_tmux() {
   local out pid unit status=0
   out=$(mktemp)
@@ -182,7 +205,7 @@ doctor_check_slot() {
     return
   fi
   [[ -n $AR_ERROR ]] || server_error 120 doctor
-  DOCTOR_FINDINGS+=("$(contract_json -c '. + {severity: "error", host: "server"}' <<<"$AR_ERROR")")
+  doctor_add error "$AR_ERROR"
 }
 
 cmd_doctor() {
@@ -191,6 +214,7 @@ cmd_doctor() {
   doctor_check_rex
   doctor_check_units
   doctor_check_rexurrect
+  doctor_check_saves
   doctor_check_journal
   doctor_check_tmux
   doctor_check_tools

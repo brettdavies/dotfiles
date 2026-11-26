@@ -1,6 +1,9 @@
 [Unit]
 Description=Save the operator's own Rex tabs with rexurrect, once the start-up step has restored them
 ConditionHost=bigdaddy
+# A save asked for while rex-server.service stops starts only once the stop is over, so none runs while the server
+# closes its terminals.
+After=rex-server.service
 
 [Service]
 Type=oneshot

@@ -77,19 +77,20 @@ verb_help() {
       'example: agent-slot-rex finish dotfiles/2' ;;
     save) printf '%s\n' 'usage: agent-slot-rex save [--output json]' \
       "Runs rexurrect save, which snapshots the operator's own tabs, once $AR_STARTUP_RECORD shows that the start-up" \
-      "step's rexurrect restore into the running Rex server is done, or failed with rexurrect still recording the" \
-      "server as restored into. Otherwise, or with no Rex server answering, it changes nothing, says why under" \
-      "skipped (save-paused or rex-server-down), and exits 0: rexurrect's save restores first into a server it has" \
-      "not restored, which would open a second copy of each repo session. agent-slot-save.timer runs it every 2" \
-      "minutes, and $AR_REX_UNIT runs it as it stops, so a restart keeps the newest tabs. Each run" \
-      "appends a line to $AR_STATE/save.log. Returns saved, instance, rexurrect (the start-up record's outcome), and" \
-      'skipped.' \
+      "step's rexurrect restore into the running Rex server is done, or failed or stopped at its bound with rexurrect" \
+      "still recording the server as restored into. Otherwise, or with no Rex server answering or no rex CLI, it" \
+      "changes nothing, says why under skipped (save-paused, rex-server-down, or dependency-missing), and exits 0:" \
+      "rexurrect's save restores first into a server it has not restored, which would open a second copy of each" \
+      "repo session. rexurrect save runs for at most $AR_SAVE_BOUND s. agent-slot-save.timer runs it every 2 minutes," \
+      "and $AR_REX_UNIT runs it as it stops, so a restart keeps the newest tabs. Each run appends a line to" \
+      "$AR_SAVE_LOG. Returns saved, instance, startup (rexurrect's outcome in the start-up record), and skipped," \
+      'whose next_step names the command that ends the pause.' \
       'example: agent-slot-rex save' ;;
     doctor) printf '%s\n' 'usage: agent-slot-rex doctor [--output json]' \
       "Checks the rex CLI, the Rex server (that $AR_REX_UNIT started it, its build, and the new-agent action)," \
-      "the reconcile timer, the tab-number watcher, the login server, rexurrect, the reconcile journal, and where" \
-      "the agent-slots tmux server runs, then adds agent-slot doctor's findings. Versions that differ from the" \
-      'verified ones only warn.' \
+      "the reconcile and save timers, the tab-number watcher, the login server, rexurrect and its newest save, a" \
+      "start-up record that pauses every save, the reconcile journal, and where the agent-slots tmux server runs," \
+      "then adds agent-slot doctor's findings. Versions that differ from the verified ones only warn." \
       'example: agent-slot-rex doctor --output json' ;;
   esac
 }

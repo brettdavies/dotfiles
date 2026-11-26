@@ -264,28 +264,29 @@ sessions, or a `claude -p` a slot's agent starts, a review run included.
 
 #### Skill sets
 
-`~/.claude/settings.json` turns some skills off in every session, such as the SEO skills.
-`agent-slot launch <repo> --skills <set>` turns a named list of them on in the new slot alone. Each file in
-`config/agent-slot/skill-sets/` is one set, named by the word `--skills` takes (lowercase letters, digits, and `-`),
-with one skill name per line and `#` comments; the one set is `seo`. Setup writes each name as `"on"` under
-`skillOverrides` in the slot's `.claude/settings.local.json`, which Claude ranks above `~/.claude/settings.json`. A name
-that file does not turn off needs no set, and `tests/agent-slot-skill-sets.bats` fails a set that names one. A skill the
-slot profile also turns off stays off, since the inline profile object outranks the local file. A set that is not a file
-there is refused with `skill-set-unknown` before anything is cloned, and a foreign head, whose slot loads no local
-settings, with `usage`. The launch reports the set as `skill_set`, null without the flag, and a repeat that finds a slot
-reports the set that slot was made with. `reopen` and `resume` take no `--skills`.
+`~/.claude/settings.json` turns some skills off in every session, such as the SEO skills. `agent-slot launch <repo>
+--skills <set>` turns a named list of them on in the new slot alone. Each file in `config/agent-slot/skill-sets/` is one
+set, named by the word `--skills` takes (lowercase letters, digits, and `-`), with one skill name per line and `#`
+comments; the one set is `seo`. Setup writes each name as `"on"` under `skillOverrides` in the slot's
+`.claude/settings.local.json`, which Claude ranks above `~/.claude/settings.json`. A name that file does not turn off
+needs no set, and `tests/agent-slot-skill-sets.bats` fails a set that names one. A skill the slot profile also turns off
+stays off, since the inline profile object outranks the local file. A set that is not a file there is refused with
+`skill-set-unknown` before anything is cloned, and a foreign head, whose slot loads no local settings, with `usage`. The
+launch reports the set as `skill_set`, null without the flag, and a repeat that finds a slot reports the set that slot
+was made with. `reopen` and `resume` take no `--skills`.
 
 The Obsidian vault takes slots too, several at once, under the name `agent-slot repos` lists it by:
 `agent-slot launch obsidian-vault --model (opus | sonnet) --request-id <id> --prompt-file <brief>`. `~/obsidian-vault`
 keeps its git directory in `~/dev/vault-git`, so its `.git` is a file. A prime's `.git` may be a file when its git
 directory is also its common directory, which rules out a linked worktree; the git directory itself has no `.git` and is
-never listed. Its prime goes by the name `Vault`. Nothing automated commits in the vault. A vault slot commits only its
-own task's work, on main, and runs `git fetch` then `git rebase origin/main` before each push, so parallel slots never
-clobber each other. Its SessionStart context carries those rules, and tells it to keep vault content out of
-`docs/solutions`, other repos, PR bodies, and every outside service. With no PR, its task finishes when its agent runs
-`agent-slot release`. A slot clones from origin, so it holds only what is pushed, and its work reaches
-`~/obsidian-vault`, which Obsidian and qmd read, when the operator pulls there. A slot's teardown treats no ignored
-directory as tool output, since the vault's whitelist `.gitignore` ignores every new top-level directory.
+never listed. Its prime goes by the name `Vault`.
+Nothing automated commits in the vault. A vault slot commits only its own task's work, on main, and runs `git fetch`
+then `git rebase origin/main` before each push, so parallel slots never clobber each other. Its SessionStart context
+carries those rules, and tells it to keep vault content out of `docs/solutions`, other repos, PR bodies, and every
+outside service. With no PR, its task finishes when its agent runs `agent-slot release`. A slot clones from origin, so
+it holds only what is pushed, and its work reaches `~/obsidian-vault`, which Obsidian and qmd read, when the operator
+pulls there. A slot's teardown treats no ignored directory as tool output, since the vault's whitelist `.gitignore`
+ignores every new top-level directory.
 
 Nobody watches a slot's tab, so no agent there waits on a dialog. `slot-unattended.sh` (in `stow/claude/dot-claude/`)
 answers every dialog Claude Code raises in a slot, for the slot's own Claude and for its subagents. It denies a
@@ -312,8 +313,8 @@ when it starts, so a review that fails at once still uses its round. Outside a s
 `/devex-review` and `/cso` are not counted. It also denies a slot's `claude` command whose prompt starts `/code-review`,
 `/review`, `/security-review`, or `/codex`; the slot profile turns those skills off for the slot's own Claude.
 
-The operator or the coordinating prime allows one more round with `agent-slot grant-review <repo>/<N>`, which appends a
-`review-grant` event for the slot's current branch and reports the rounds used and allowed. Each run is one round. It
+The operator or the coordinating prime allows one more round with `agent-slot grant-review <repo>/<N>`, which appends
+a `review-grant` event for the slot's current branch and reports the rounds used and allowed. Each run is one round. It
 refuses with `review-grant-from-slot` when run from a slot's directory or from a pane on the slot tmux server that is
 not a prime's, and `slot-review-cap.sh` denies a slot's Claude any Bash command that runs it. The cap is a guard, not a
 trust boundary: an agent with a shell could still write a ledger line.
@@ -426,12 +427,15 @@ On the Linux server:
 
 1. `scripts/stow-deploy --headless --all` deploys the slot commands, the Rex config with its start-up step and
    tab-number watcher, and the units, then reloads the running Rex server's config.
-2. `bash scripts/host-jobs-enable.sh` enables the sweep, reconcile, warm, and save timers and starts
+2. `scripts/rexurrect-deploy.sh` installs the pinned rexurrect and its zsh recorder.
+3. `bash scripts/host-jobs-enable.sh` enables the sweep, reconcile, warm, and save timers and starts
    `rex-server.service` and `rex-tab-numbers.service`; `systemctl --user enable --now tmux-prune-orphans-slots.timer`
-   adds the slot tmux server's orphan sweep.
-3. `agent-slot-rex doctor` is the checklist from there. Each finding names what is missing with the command that fixes
+   adds the slot tmux server's orphan sweep. Rerun it after a pull that adds a unit. A change to `rex-server.service`
+   takes effect at its next restart, `systemctl --user restart rex-server.service`, which saves the operator's own tabs
+   as the server stops.
+4. `agent-slot-rex doctor` is the checklist from there. Each finding names what is missing with the command that fixes
    it, such as the login server's deploy or rexurrect's. Rerun it until it reports no errors.
-4. Press the new-agent key in each repo's Rex session to open its prime, or run `claude --dangerously-skip-permissions`
+5. Press the new-agent key in each repo's Rex session to open its prime, or run `claude --dangerously-skip-permissions`
    once in its checkout, and accept the trust dialog, which the flag does not skip. Do the same for every repo cloned
    under `~/dev` later. A slot path is trusted only for a repo whose prime checkout you have trusted in Claude, because
    trust lets Claude load the repo's own settings and hooks. `agent-slot-warm.timer` runs `agent-slot warm --all` every
@@ -487,9 +491,9 @@ with `script-error` rather than choosing a fresh conversation blind.
 
 Each of a prime's sessions takes its name only once its program is typed in. A start cut off before then, as by a
 timeout around it, leaves a session named `<name>-starting-p<pid>`, which nothing reads as the running prime. It can
-hold a Claude the cut start had already started. The next start kills it, waits up to `AGENT_SLOT_PRIME_EXIT_WAIT`
-seconds (10) for its processes to exit before choosing a conversation, failing `slot-busy` if they do not, and names it
-in `cleared`.
+hold a Claude the cut start had already started. The next start kills it, waits up to
+`AGENT_SLOT_PRIME_EXIT_WAIT` seconds (10) for its processes to exit before choosing a conversation, failing `slot-busy`
+if they do not, and names it in `cleared`.
 
 A repo's name in a tab comes from `config/agent-slot-rex/primes.tsv`, such as `XR CLI` for `xurl-rs`, else it is the
 repo's own. A session of that name on the default tmux server that holds a Claude is the repo's prime until you close
@@ -596,15 +600,17 @@ record is reconciled anyway, and that pass records rexurrect as skipped. `agent-
 `reconcile-stale` once three passes in a row failed or found the lock held.
 
 `agent-slot-save.timer` runs `agent-slot-rex save` every 2 minutes, and `rex-server.service` runs it as it stops, so a
-planned restart keeps the newest tabs. It runs `rexurrect save` only once the start-up record shows rexurrect's restore
-into the running server `done`, or `failed` with the server still in rexurrect's `restored-instances` file, because
+planned restart keeps the newest tabs; at host shutdown, where the user manager gives every unit 5 s, the server stops
+without it. It runs `rexurrect save` only once the start-up record shows rexurrect's restore into the running server
+`done`, or `failed` or `stopped` at its bound with the server still in rexurrect's `restored-instances` file, because
 rexurrect's save first restores into a server it has not restored, which would open a second copy of every repo session.
 Otherwise it changes nothing, logs `save-paused` (or `rex-server-down`), and exits 0. Each save appends a line to
-`~/.local/state/agent-slot-rex/save.log`. `scripts/rexurrect-deploy.sh` installs the pinned rexurrect and its zsh
-recorder, which `.zshrc` loads so a restore types each tab's last command back at its prompt. rexurrect's own settings
-live in `stow/rex/dot-config/rexurrect/config.toml`, which every host that runs it shares. On the Linux server, leave
-`rexurrect setup` and `rexurrect autosave install` unrun: each installs a timer of rexurrect's own that saves without
-that gate.
+`~/.local/state/agent-slot-rex/save.log`. `agent-slot-rex doctor` reports a save timer that is not running, a newest
+save that failed, and a start-up record that pauses every save until the server restarts. `scripts/rexurrect-deploy.sh`
+installs the pinned rexurrect and its zsh recorder, which `.zshrc` loads so a restore types each tab's last command back
+at its prompt. rexurrect's own settings live in `stow/rex/dot-config/rexurrect/config.toml`, which every host that runs
+it shares. On the Linux server, leave `rexurrect setup` and `rexurrect autosave install` unrun: each installs a timer of
+rexurrect's own that saves without that gate.
 
 `rex-server.service` stops and handles memory as the Rex package's own user unit does. Only the server gets SIGTERM, so
 it saves every session before it closes their terminals. An OOM kill in one tab leaves the server running, and each
@@ -732,17 +738,17 @@ that names no items. It makes a fresh slot as launch does and checks out the hea
 out, else the PR's head branch, else the base, fetched from the remote the ledger recorded for it when that remote is on
 origin's host, else from the PR's head repository. A PR that GitHub reports merged into the base, whose head is that
 branch at the commit the teardown recorded for it (or at any commit when the teardown recorded none), gives the base
-instead, since `origin/<base>` holds its work: the slot has no local branch for the merged head, `head.source.branch` is
-`base`, and `--dry-run` says so in its text output. A PR merged into another branch, a merged PR whose head commit or
-target branch GitHub does not report, a closed PR that did not merge, and a branch tip past the merged head keep the
-branch. A branch that remote no longer has comes from a PR's `refs/pull/<N>/head`, and for an issue the slot keeps the
-base; either way the reopen reports `head_pushable: false`. It then starts Claude with `--resume <session ID>`, so the
-agent has the first round's conversation; nothing under `~/.claude/projects` moves, since Claude Code resumes a session
-by its ID from any directory. The `--prompt-file` text is the reopened agent's first prompt, its brief for the new
-round. Reopen refuses while a slot holds the item or the session, while a Claude agent has the session open, when no
-teardown names the item, and when Claude Code no longer has the transcript, each before it claims a slot. `--dry-run`
-changes nothing and exits 0 with either the plan or, under `would_reopen: false`, the refusal a reopen would hit; a ref
-GitHub cannot read still fails.
+instead, since `origin/<base>` holds its work: the slot has no local branch for the merged head, `head.source.branch`
+is `base`, and `--dry-run` says so in its text output. A PR merged into another branch, a merged PR whose head commit
+or target branch GitHub does not report, a closed PR that did not merge, and a branch tip past the merged head keep the
+branch. A branch that remote no longer has comes from a PR's
+`refs/pull/<N>/head`, and for an issue the slot keeps the base; either way the reopen reports `head_pushable: false`. It
+then starts Claude with `--resume <session ID>`, so the agent has the first round's conversation; nothing under
+`~/.claude/projects` moves, since Claude Code resumes a session by its ID from any directory. The `--prompt-file` text
+is the reopened agent's first prompt, its brief for the new round. Reopen refuses while a slot holds the item or the
+session, while a Claude agent has the session open, when no teardown names the item, and when Claude Code no longer has
+the transcript, each before it claims a slot. `--dry-run` changes nothing and exits 0 with either the plan or, under
+`would_reopen: false`, the refusal a reopen would hit; a ref GitHub cannot read still fails.
 
 The reopened slot keeps the old one's items, name, task, and session, records its source in `reopened_from`, and lists
 in `settled_prs` the PRs already merged or closed when it was reopened. Those PRs neither finish the task nor keep it
@@ -891,12 +897,11 @@ agent-slot close-probe 487 --output json
 #### Commands
 
 On the Linux server, `agent-slot repos` lists the repos a slot can be made from, `agent-slot list` every slot with its
-state, agent, and blockers and every running prime, and `agent-slot whoami` the slot a directory is in.
-`agent-slot launch <repo> --model (opus | sonnet) --request-id <id> [--prompt-file <file>] [--skills <set>]` starts an
-agent on that model at `--effort xhigh` on the slot profile described above, a Sonnet one with Opus as its advisor, and
-agents use it to hand a task to a slot; a repeat with the same request ID returns the same slot, and a `--prompt-file`
-that finds a slot another request made for the task or item is refused with `item-held-by-slot`, so no brief is dropped;
-`--skills
+state, agent, and blockers and every running prime, and `agent-slot whoami` the slot a directory is in. `agent-slot
+launch <repo> --model (opus | sonnet) --request-id <id> [--prompt-file <file>] [--skills <set>]` starts an agent on that
+model at `--effort xhigh` on the slot profile described above, a Sonnet one with Opus as its advisor, and agents use it
+to hand a task to a slot; a repeat with the same request ID returns the same slot, and a `--prompt-file` that finds a
+slot another request made for the task or item is refused with `item-held-by-slot`, so no brief is dropped; `--skills
 <set>` turns on the skills the file `config/agent-slot/skill-sets/<set>` lists, in that slot only (see [skill
 sets](#skill-sets)); `--pr <ref>` or `--issue
 <ref>` gives the slot that work item, its name, and, for a PR, its head branch (see [work items and
@@ -904,26 +909,25 @@ reopen](#work-items-and-reopen)). `agent-slot resume <repo>/<N>` restarts a dorm
 then deletes its local branches whose PRs all merged or closed, with origin's branch of each, keeping the base, origin's
 default branch, the branch checked out, any branch a PR targets, and any branch holding work its PRs never had, and
 reports each delete that failed in `prune_failed`; `agent-slot prime <repo>` starts the repo's prime if it is not
-running and says where it runs; `agent-slot warm <repo>` (or `--all`) trusts slot paths ahead of time, and
-`agent-slot check [<repo>/<N>]` gives the teardown verdict. `agent-slot adopt <repo>/<N> --pr <ref>` (or
-`--issue <ref>`) attaches a PR or issue to a live slot and names the slot `<repo>-pr<N>-<slug>` or
-`<repo>-issue<N>-<slug>` when it has no name; it changes only the slot's record and its Claude session's name, so it
-needs no ask. `agent-slot probe <pr>` and `agent-slot close-probe <pr>`, run from inside a slot, mark and close a
-throwaway draft that slot pushed (see [probe PRs](#probe-prs)).
-`agent-slot reopen <repo> --model (opus | sonnet) --pr <ref> --prompt-file <file>` (or `--issue
+running and says where it runs; `agent-slot warm <repo>` (or `--all`) trusts slot paths ahead of time, and `agent-slot
+check [<repo>/<N>]` gives the teardown verdict. `agent-slot adopt <repo>/<N> --pr <ref>` (or `--issue <ref>`) attaches a
+PR or issue to a live slot and names the slot `<repo>-pr<N>-<slug>` or `<repo>-issue<N>-<slug>` when it has no name; it
+changes only the slot's record and its Claude session's name, so it needs no ask. `agent-slot probe <pr>` and
+`agent-slot close-probe <pr>`, run from inside a slot, mark and close a throwaway draft that slot pushed (see [probe
+PRs](#probe-prs)). `agent-slot reopen <repo> --model (opus | sonnet) --pr <ref> --prompt-file <file>` (or `--issue
 <ref>`) brings a torn-down slot's work on a PR or issue back in a fresh slot, with its Claude conversation resumed, and
 `--dry-run` reports what it would do or the refusal it would hit, checking the prime for a Cloudflare config because the
 slot is not cloned yet, so a config only the PR's head holds shows the cloudflare plugin off in the dry run and on in
 the reopen; agents ask before running it, `--dry-run` included. `agent-slot sweep` and `agent-slot finish <repo>/<N>`
 delete slots, so both only report unless given `--yes`, and agents ask before running them. `finish` refuses a task with
-an open PR (`task-has-open-pr`) unless the operator adds `--allow-open-pr` to `--yes`, as in
-`agent-slot finish dotfiles/2 --yes --allow-open-pr`, which ends the task whatever state its PRs are in; a release and
-the finish key never pass it, and the report-only run names it in `would_need`. `agent-slot release`, run from inside a
-slot, hands that slot's teardown upstream; it deletes nothing itself, so it needs no ask. `agent-slot doctor` checks
-every prerequisite and the time from key press to Claude idle. Its `key_to_ready` covers the last 20 launches from the
-new-agent key, from the moment the key's tab opened to the slot's Claude starting its session, with the median of each
-step between: Rex.app showing the tab, the helper's own calls, agent-slot's checks before the clone, the clone, setup,
-trust, and tmux phases, and Claude's start.
+an open PR (`task-has-open-pr`) unless the operator adds `--allow-open-pr` to `--yes`, as in `agent-slot finish
+dotfiles/2 --yes --allow-open-pr`, which ends the task whatever state its PRs are in; a release and the finish key never
+pass it, and the report-only run names it in `would_need`. `agent-slot release`, run from inside a slot, hands that
+slot's teardown upstream; it deletes nothing itself, so it needs no ask. `agent-slot doctor` checks every prerequisite
+and the time from key press to Claude idle. Its `key_to_ready` covers the last 20 launches from the new-agent key, from
+the moment the key's tab opened to the slot's Claude starting its session, with the median of each step between: Rex.app
+showing the tab, the helper's own calls, agent-slot's checks before the clone, the clone, setup, trust, and tmux phases,
+and Claude's start.
 
 `agent-slot retask <repo>/<N> (--task <name> | --issue <ref>) --prompt-file <file>` gives a live slot a new task in a
 new Claude session, so one conversation never carries two tasks. Follow-up work on the same task goes to the existing
@@ -932,8 +936,8 @@ work pushed, else `slot-work-unfinished`. The `value` of `agent-busy` is the age
 `unknown`), `own-agent` for a `retask` run by the slot's own agent in any state, or one `<pid> <command>` line for each
 Bash command an idle agent's Claude still runs. The `next_step.action` is `retry` for a busy agent and for running
 commands, which the slot's agent or the operator can end, and `ask-operator` otherwise: a waiting or unreadable agent
-needs a person, and a `retask` run by the slot's own agent needs another session, since ending that Claude would end the
-`retask`. The clone returns to the base without its other local branches. The record takes a new session ID, name,
+needs a person, and a `retask` run by the slot's own agent needs another session, since ending that Claude would end
+the `retask`. The clone returns to the base without its other local branches. The record takes a new session ID, name,
 brief, and scope, and a reopen finds the old session in `prior_sessions` and the `retask` ledger line. A slot that
 starts a new task without it is stopped at its push: `slot-scope-guard.sh` denies a branch that shares no line of work
 with the slot's other branches. Two branches share one when either contains the other, when the base contains the other,
@@ -961,10 +965,10 @@ lower branch is squash-merged into the base and the upper branch is replayed ont
 denied when the lower branch was reset, amended, or squashed after the stack was built on it and carries work the base
 lacks, when the tip is one the base already holds, when the clone has no ref for the base, and when the reflog of
 `origin/<branch>` does not name the earlier tip. Origin's default branch, while origin's copy holds all its commits, is
-no second task, and a probe's branch goes under `probe/`. When the denial is over a branch whose work the base holds
-(the clean-merge test above), it says so and names the way out: a push that continues the same task deletes that local
-branch with `git branch -D <branch>` and pushes again, and a new task still asks for `agent-slot retask`. A denial over
-a branch with work the base lacks names only `retask`, since deleting that branch would lose the work.
+no second task, and a probe's branch goes under `probe/`. When the denial is over a branch whose work the base holds (the
+clean-merge test above), it says so and names the way out: a push that continues the same task deletes that local branch
+with `git branch -D <branch>` and pushes again, and a new task still asks for `agent-slot retask`. A denial over a branch
+with work the base lacks names only `retask`, since deleting that branch would lose the work.
 
 `agent-slot resume <repo>/<N> --model (opus | sonnet)` switches a live slot's model. The slot's record takes the model,
 and a Claude that is idle is ended and started again in its own pane through the command line a launch builds, resuming
@@ -979,14 +983,14 @@ A Claude that is busy, waiting at a prompt, or whose state cannot be read is nev
 with an unfinished background shell, such as a watcher on a CI run, as busy, and a resume run by the slot's own agent
 mid-turn finds that agent busy the same way. The resume fails with `agent-busy` and changes nothing. `value` is the
 state (`busy`, `waiting`, `unknown`). The `next_step.action` is `retry` for a busy agent and `ask-operator` otherwise,
-since a waiting or unreadable agent needs a person; `agent-slot list --output json` shows each slot's `.agent`. A resume
-that the slot's own agent needs is run from another session, since a wait inside the slot's own session, a background
-one included, keeps that agent busy. With no Claude running, only the record changes: `agent-slot` starts no Claude in a
-session that exists, so the model applies when the session is created again. Naming the model the slot already runs is a
-plain resume, so a call whose answer was lost can be repeated. A pane the operator has scrolled back in is taken out of
-copy mode first, before anything changes; if tmux cannot, the resume fails with `tmux-failed` and changes nothing. If
-the line cannot be typed after the old Claude is gone, the Claude session is dropped and the error is `tmux-failed`, or
-`tmux-unresponsive` when tmux did not answer, with partial side effects; `agent-slot resume
+since a waiting or unreadable agent needs a person; `agent-slot list --output json` shows each slot's `.agent`. A
+resume that the slot's own agent needs is run from another session, since a wait inside the slot's own session, a
+background one included, keeps that agent busy. With no Claude running, only the record changes: `agent-slot` starts
+no Claude in a session that exists, so the model applies when the session is created again. Naming the model the slot
+already runs is a plain resume, so a call whose answer was lost can be repeated. A pane the operator has scrolled
+back in is taken out of copy mode first, before anything changes; if tmux cannot, the resume fails with `tmux-failed`
+and changes nothing. If the line cannot be typed after the old Claude is gone, the Claude session is dropped and the
+error is `tmux-failed`, or `tmux-unresponsive` when tmux did not answer, with partial side effects; `agent-slot resume
 <repo>/<N>` then creates the session on the new model. If the session cannot be dropped either, `next_step.command`
 is the tmux command that drops it.
 
@@ -1094,6 +1098,7 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `rex-server-foreign`          | 78   | Doctor: `rex-server.service` did not start the Rex server holding the socket; see `next_step`  |
 | `rex-restart-pending`         | 0    | Doctor warning: the installed Rex is newer than the running server; update the apps first      |
 | `reconcile-timer-inactive`    | 78   | The once-a-minute reconcile timer is not running; `systemctl --user enable --now` it           |
+| `save-timer-inactive`         | 78   | The 2-minute save timer is not running; `systemctl --user enable --now` it                     |
 | `tab-numbers-inactive`        | 78   | The tab-number watcher is not running; `systemctl --user enable --now rex-tab-numbers.service` |
 | `login-server-inactive`       | 78   | The Rex login server is not running, so no Rex client can reach the Linux server               |
 | `rexurrect-missing`           | 78   | Doctor warning: rexurrect is not installed, so own tabs are not restored after a Rex restart   |

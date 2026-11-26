@@ -255,8 +255,9 @@ export PATH="$HOME/.antigravity/antigravity/bin:$PATH"
 # Only a host with the 1Password desktop app integration has the file.
 [[ -f "$HOME/.config/op/plugins.sh" ]] && source "$HOME/.config/op/plugins.sh"
 
-# rexurrect's recorder keeps each Rex block's last command for a restore. scripts/rexurrect-deploy.sh installs it on
-# the hosts that restore Rex tabs, and it records nothing outside a Rex block.
+# rexurrect's recorder keeps each Rex block's last command for a restore. scripts/rexurrect-deploy.sh installs it at
+# this path on the Linux server. A host without it there records no last command, and it records nothing outside a Rex
+# block.
 [[ -r "$HOME/.local/share/rexurrect/rexurrect.plugin.zsh" ]] && source "$HOME/.local/share/rexurrect/rexurrect.plugin.zsh"
 
 # Homebrew zsh plugins — sourced directly because brew doesn't ship the

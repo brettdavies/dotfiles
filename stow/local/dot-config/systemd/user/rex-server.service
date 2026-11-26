@@ -10,8 +10,11 @@ Type=notify
 NotifyAccess=main
 ExecStart=/usr/bin/rex server run
 # The save runs while the server still answers, so a restart restores the newest tabs. The user manager's PATH has no
-# Homebrew, which the helper needs; the server's own environment, which every tab inherits, stays as it is.
-ExecStop=-/usr/bin/env PATH=/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin %h/.local/bin/agent-slot-rex save --output json
+# Homebrew, which the helper needs; the server's own environment, which every tab inherits, stays as it is. While the
+# user manager itself stops, at host shutdown, it has 5 s for every unit (TimeoutStopSec of Ubuntu's user@.service),
+# which the save outlasts, so the save is skipped and the server gets its SIGTERM at once; the save timer's last
+# snapshot is at most 2 minutes old then.
+ExecStop=-/bin/sh -c '[ "$$(/usr/bin/timeout 2 /usr/bin/systemctl --user is-system-running)" = stopping ] || exec /usr/bin/env PATH=/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin %h/.local/bin/agent-slot-rex save --output json'
 Restart=always
 RestartSec=10s
 # As in the Rex package's own user unit: only the server gets SIGTERM, so it saves every session before it closes their

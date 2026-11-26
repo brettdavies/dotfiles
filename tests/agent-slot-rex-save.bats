@@ -14,7 +14,6 @@ setup() {
   agent_slot_rex_setup
   SAVES=$AGENT_SLOT_REX_STATE_DIR/save.log
   RECORD=$AGENT_SLOT_REX_STATE_DIR/startup.json
-  export REXURRECT_STATE_DIR=$T/rexurrect
   mkdir -p "$REXURRECT_STATE_DIR"
   stub rexurrect 'exit 0'
 }
@@ -39,9 +38,9 @@ paused() {
   run --separate-stderr "$AGENT_SLOT_REX" save --output json
   [ "$status" -eq 0 ]
   called '^rexurrect save$'
-  jaq -e --arg i "$REX_STUB_INSTANCE" '.saved and .instance == $i and .rexurrect == "done" and .skipped == null' \
+  jaq -e --arg i "$REX_STUB_INSTANCE" '.saved and .instance == $i and .startup == "done" and .skipped == null' \
     <<<"$output"
-  jaq -e '.by == "save" and .ok and .skipped == null' "$SAVES"
+  jaq -e '.by == "save" and .ok and .skipped == null and .rexurrect == "done"' "$SAVES"
 }
 
 @test "save runs after a failed restore when rexurrect recorded the server instance" {
@@ -52,12 +51,20 @@ paused() {
   called '^rexurrect save$'
 }
 
+@test "save runs after a restore cut off at its bound when rexurrect recorded the server instance" {
+  recorded stopped
+  printf '%s\n' "$REX_STUB_INSTANCE" >"$REXURRECT_STATE_DIR/restored-instances"
+  run --separate-stderr "$AGENT_SLOT_REX" save --output json
+  [ "$status" -eq 0 ]
+  called '^rexurrect save$'
+}
+
 @test "save pauses after a failed restore rexurrect never recorded, since its save would restore into a filled server" {
   recorded failed
   printf '99999999-0000-0000-0000-000000000000\n' >"$REXURRECT_STATE_DIR/restored-instances"
   run --separate-stderr "$AGENT_SLOT_REX" save --output json
   paused
-  jaq -e '.skipped.message | test("rex-server.service")' <<<"$output"
+  jaq -e '.skipped.next_step.command == "systemctl --user restart rex-server.service"' <<<"$output"
 }
 
 @test "save pauses while rexurrect stopped at its bound or was skipped, or the start-up step has not run" {
@@ -70,6 +77,7 @@ paused() {
   rm -f "$RECORD"
   run --separate-stderr "$AGENT_SLOT_REX" save --output json
   paused
+  jaq -e '.startup == null and .skipped.next_step.command == "agent-slot-rex save"' <<<"$output"
 }
 
 @test "save changes nothing and exits 0 when no Rex server answers" {
@@ -86,7 +94,26 @@ paused() {
   stub rexurrect 'echo "rexurrect: the Rex server refused the snapshot" >&2; exit 1'
   run --separate-stderr "$AGENT_SLOT_REX" save --output json
   [ "$status" -eq 1 ]
-  jaq -e '.reason == "rexurrect-failed" and (.message | test("refused the snapshot"))
-    and .next_step.command == "agent-slot-rex save"' <<<"$stderr"
-  jaq -e '.by == "save" and .ok == false and .error.reason == "rexurrect-failed"' "$SAVES"
+  jaq -e --arg log "$REXURRECT_STATE_DIR/rexurrect.log" '.reason == "rexurrect-failed"
+    and (.message | test("refused the snapshot")) and .log == $log and .next_step.command == "agent-slot-rex save"' \
+    <<<"$stderr"
+  jaq -e '.by == "save" and .ok == false and .error.reason == "rexurrect-failed" and .rexurrect == "failed"' "$SAVES"
+}
+
+@test "a rexurrect save that outlives its bound fails as rexurrect-failed, naming the bound" {
+  recorded "done"
+  stub rexurrect 'exec sleep 30'
+  AGENT_SLOT_REX_SAVE_BOUND=1 run --separate-stderr "$AGENT_SLOT_REX" save --output json
+  [ "$status" -eq 1 ]
+  jaq -e '.reason == "rexurrect-failed" and (.message | test("did not finish within 1 s"))' <<<"$stderr"
+}
+
+@test "a save with no rexurrect installed fails as rexurrect-missing, naming the deploy script" {
+  recorded "done"
+  rm "$STUBS/rexurrect"
+  run --separate-stderr "$AGENT_SLOT_REX" save --output json
+  [ "$status" -eq 78 ]
+  jaq -e '.reason == "rexurrect-missing" and .next_step.command == "cd ~/dotfiles && scripts/rexurrect-deploy.sh"' \
+    <<<"$stderr"
+  jaq -e '.by == "save" and .ok == false and .error.reason == "rexurrect-missing"' "$SAVES"
 }

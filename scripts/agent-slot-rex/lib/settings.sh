@@ -41,6 +41,7 @@ fi
 AR_STATE=${AGENT_SLOT_REX_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/agent-slot-rex}
 AR_LOG_DIR=$AR_STATE/logs
 AR_STARTUP_RECORD=$AR_STATE/startup.json
+AR_SAVE_LOG=$AR_STATE/save.log
 AR_VERIFIED=${AGENT_SLOT_REX_VERIFIED_VERSIONS:-$AR_HOME/../agent-slot/verified-versions}
 AR_PRIMES=${AGENT_SLOT_REX_PRIMES:-${AR_HOME%/*/*}/config/agent-slot-rex/primes.tsv}
 AR_LOGIN_SHELL=${AGENT_SLOT_REX_LOGIN_SHELL:-${SHELL:-zsh}}
@@ -63,6 +64,7 @@ AR_TMUX_SOCKET=agent-slots
 AR_REX_UNIT=rex-server.service
 AR_LOGIN_UNIT=rex-login-server.service
 AR_RECONCILE_TIMER=agent-slot-reconcile.timer
+AR_SAVE_TIMER=agent-slot-save.timer
 AR_TAB_NUMBERS_UNIT=rex-tab-numbers.service
 
 AR_RETRY=${AGENT_SLOT_REX_RETRY_DELAY:-3}
@@ -74,3 +76,6 @@ AR_RECONCILE_STALE=${AGENT_SLOT_REX_RECONCILE_STALE:-180}
 AR_STARTUP_WAIT=${AGENT_SLOT_REX_STARTUP_WAIT:-120}
 AR_REXURRECT_BOUND=${AGENT_SLOT_REX_REXURRECT_BOUND:-90}
 AR_STARTUP_LIMIT=${AGENT_SLOT_REX_STARTUP_LIMIT:-300}
+# How long one `rexurrect save` may run: about ten times the 6.4 s a save of 20 sessions takes, inside both the save
+# service's 2-minute limit and the 90 s a stop of rex-server.service waits for its ExecStop.
+AR_SAVE_BOUND=${AGENT_SLOT_REX_SAVE_BOUND:-60}

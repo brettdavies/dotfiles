@@ -1,22 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Install the pinned rexurrect release on the Linux server: the binary to
-# ~/.local/bin/rexurrect and its zsh recorder to
-# ~/.local/share/rexurrect/rexurrect.plugin.zsh, where .zshrc sources it.
-#
-# The archive is downloaded into an empty directory, and nothing is installed
-# unless its SHA-256 matches the pin below and `gh attestation verify` accepts
-# it. An install counts as current only when both installed files have the
-# pinned SHA-256 of their copies inside that archive; any other file there is
-# replaced from the verified download, and the installed binary is never run.
-#
 # Usage: scripts/rexurrect-deploy.sh [--dest DIR]
+#
+# Installs the pinned rexurrect release on the Linux server: the binary at
+# ~/.local/bin/rexurrect and its zsh recorder at
+# ~/.local/share/rexurrect/rexurrect.plugin.zsh, which .zshrc sources. The
+# download and its attestation check need gh signed in (gh auth login).
 #
 #   --dest DIR  install under DIR instead of $HOME
 #
 # Exit 0 on success, including when nothing changed; 1 on a failed check or
 # download; 2 on a usage error.
+
+# The archive is downloaded into an empty directory, and nothing is installed
+# unless its SHA-256 matches the pin below and `gh attestation verify` accepts
+# it as built by the release workflow from the version's tag. An install
+# counts as current only when both installed files have the pinned SHA-256 of
+# their copies inside that archive; any other file there is replaced from the
+# verified download, and the installed binary is never run.
 
 REXURRECT_REPO=cemcatik/rexurrect
 REXURRECT_VERSION=0.6.0
@@ -29,13 +31,18 @@ EXIT_FAILURE=1
 EXIT_USAGE=2
 RERUN="cd ~/dotfiles && scripts/rexurrect-deploy.sh"
 ARCHIVE="rexurrect-$REXURRECT_TARGET.tar.xz"
+RELEASE_PAGE="https://github.com/$REXURRECT_REPO/releases/tag/v$REXURRECT_VERSION"
 
 dest=$HOME
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --dest)
       [ "$#" -ge 2 ] || { echo "ERROR: --dest needs a directory (usage: $0 [--dest DIR])" >&2 && exit "$EXIT_USAGE"; }
-      dest=$2
+      case $2 in
+        /*) dest=$2 ;;
+        *) dest=$PWD/$2 ;;
+      esac
+      RERUN+=" --dest $(printf '%q' "$dest")"
       shift 2
       ;;
     -h | --help)
@@ -62,7 +69,8 @@ sha256() {
 }
 
 if [ "$(uname -s)" != Linux ]; then
-  echo "NOTE: rexurrect's deploy installs the Linux build; nothing to do on $(uname -s)"
+  echo "NOTE: rexurrect's deploy installs the Linux build; nothing to do on $(uname -s). On a Mac, rexurrect comes \
+from Homebrew: brew install cemcatik/tap/rexurrect" >&2
   exit 0
 fi
 arch=$(uname -m)
@@ -87,11 +95,15 @@ gh release download "v$REXURRECT_VERSION" --repo "$REXURRECT_REPO" --pattern "$A
 
 actual=$(sha256 "$work/$ARCHIVE")
 [ "$actual" = "$REXURRECT_ARCHIVE_SHA256" ] \
-  || fatal "SHA-256 is $actual, not the pinned $REXURRECT_ARCHIVE_SHA256" "Rerun: $RERUN"
+  || fatal "SHA-256 is $actual, not the pinned $REXURRECT_ARCHIVE_SHA256" \
+    "A published release's archive should never change, so a rerun fails the same way: compare the asset and its \
+checksum on $RELEASE_PAGE before pinning any new hash in $0."
 
-gh attestation verify "$work/$ARCHIVE" --repo "$REXURRECT_REPO" \
+verify=(--repo "$REXURRECT_REPO" --signer-workflow "$REXURRECT_REPO/.github/workflows/release.yml"
+  --source-ref "refs/tags/v$REXURRECT_VERSION")
+gh attestation verify "$work/$ARCHIVE" "${verify[@]}" \
   || fatal "its GitHub attestation did not verify" \
-    "Check it by hand: gh release download v$REXURRECT_VERSION --repo $REXURRECT_REPO --pattern $ARCHIVE && gh attestation verify $ARCHIVE --repo $REXURRECT_REPO"
+    "Check it by hand: gh release download v$REXURRECT_VERSION --repo $REXURRECT_REPO --pattern $ARCHIVE && gh attestation verify $ARCHIVE ${verify[*]}"
 
 tar -xJf "$work/$ARCHIVE" -C "$work"
 unpacked="$work/rexurrect-$REXURRECT_TARGET"
