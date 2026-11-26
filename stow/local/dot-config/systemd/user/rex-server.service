@@ -9,8 +9,19 @@ StartLimitIntervalSec=0
 Type=notify
 NotifyAccess=main
 ExecStart=/usr/bin/rex server run
+# The save runs while the server still answers, so a restart restores the newest tabs. The user manager's PATH has no
+# Homebrew, which the helper needs; the server's own environment, which every tab inherits, stays as it is.
+ExecStop=-/usr/bin/env PATH=/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin %h/.local/bin/agent-slot-rex save --output json
 Restart=always
 RestartSec=10s
+# As in the Rex package's own user unit: only the server gets SIGTERM, so it saves every session before it closes their
+# terminals; an OOM kill in one tab leaves the server running; and each terminal gets a cgroup of its own, so
+# systemd-oomd stops only the terminal that used too much.
+KillMode=mixed
+OOMPolicy=continue
+Delegate=yes
+DelegateSubgroup=server
+Environment=REX_CGROUP_DELEGATED=1
 # No sandboxing: every program the server starts for a tab runs in this unit and would inherit it, and
 # NoNewPrivileges= would stop sudo in every tab.
 

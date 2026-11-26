@@ -4,8 +4,8 @@
 # and the AGENT_SLOT_REX_* overrides. uname is stub_uname's stub, reporting Linux unless a suite sets STUB_UNAME,
 # so the suite runs the server's code paths on a Mac too.
 #
-# rex answers from files under $STUBS/rexdata: sessions.json for `ls`, session-<id>.json for `session inspect`,
-# process-<block>.json for `block call process`, and size-<block>.json for `block call size`, a terminal no client has
+# rex answers from files under $STUBS/rexdata: sessions.json for `ls`, session-<id>.json for `session inspect`, which
+# also takes the ID of a block in the session, as Rex does from 0.1.0~preview.23, process-<block>.json for `block call process`, and size-<block>.json for `block call size`, a terminal no client has
 # asked a size of when absent. `new` adds the session it makes to sessions.json and writes its
 # session-<id>.json, so a later lookup or inspect finds it; `window new` adds its window to the session's file and starts
 # its block's command, as ps sees it; `window rename` changes the window's label there; `send` to a block that
@@ -113,7 +113,9 @@ case "$1 $2" in
       cat "$STUBS/rexdata/starts-on-inspect-$3" >>"$STUBS/ps.txt"
       rm -f "$STUBS/rexdata/starts-on-inspect-$3"
     fi
-    cat "$STUBS/rexdata/session-$3.json" 2>/dev/null || { echo "session $3 not found" >&2; exit 1; } ;;
+    f="$STUBS/rexdata/session-$3.json"
+    [ -e "$f" ] || f=$(grep -l "\"block_id\":\"$3\"" "$STUBS"/rexdata/session-*.json 2>/dev/null | head -1)
+    cat "$f" 2>/dev/null || { echo "session $3 not found" >&2; exit 1; } ;;
   "block call")
     b=$(printf "%s\n" "$@" | sed -n "/^-b$/{n;p;}")
     case ${!#} in

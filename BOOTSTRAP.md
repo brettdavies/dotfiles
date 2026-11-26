@@ -400,9 +400,14 @@ Every slot and every repo session lives on the Linux server's Rex server, and Re
 through the Rex login server. On the Linux server, `scripts/stow-deploy --headless --all` deploys the package, and
 `bash scripts/host-jobs-enable.sh` enables and starts the units that run the slot layer:
 
-- `rex-server.service` keeps the account's Rex server running with no client connected.
+- `rex-server.service` keeps the account's Rex server running with no client connected, and saves the operator's own
+  tabs each time it stops.
 - `rex-tab-numbers.service` keeps each tab's position number at the start of its label.
 - `agent-slot-reconcile.timer` matches slot tabs to the live slots every minute.
+- `agent-slot-save.timer` saves the operator's own tabs every 2 minutes, once the start-up step has restored them.
+
+`scripts/rexurrect-deploy.sh` installs the pinned rexurrect and its zsh recorder, after checking the release's SHA-256
+and GitHub attestation.
 
 Then run the checklist, which names each missing piece with the command that adds it:
 
@@ -414,7 +419,7 @@ Before a planned restart of the Rex server, such as applying a new preview, save
 opened since the last automatic save is not lost; the start-up step restores them when the server starts again:
 
 ```bash
-rexurrect save && systemctl --user restart rex-server.service
+agent-slot-rex save && systemctl --user restart rex-server.service
 ```
 
 `cmd+alt+n` opens the session's repo prime or starts an agent on the repo in a new tab (README.md, "Keys and tab

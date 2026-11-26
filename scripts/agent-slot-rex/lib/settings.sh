@@ -18,6 +18,8 @@ AR_TMUX=${AGENT_SLOT_REX_TMUX:-tmux}
 AR_SYSTEMCTL=${AGENT_SLOT_REX_SYSTEMCTL:-systemctl}
 AR_AGENT_SLOT=${AGENT_SLOT_REX_AGENT_SLOT:-$HOME/.local/bin/agent-slot}
 AR_REXURRECT=${AGENT_SLOT_REX_REXURRECT:-$HOME/.local/bin/rexurrect}
+# rexurrect's state directory, resolved as rexurrect resolves it.
+AR_REXURRECT_STATE=${REXURRECT_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/rexurrect}
 AR_SELF=${AGENT_SLOT_REX_SELF:-$HOME/.local/bin/agent-slot-rex}
 # The Linux server's shell expands the tilde.
 # shellcheck disable=SC2088

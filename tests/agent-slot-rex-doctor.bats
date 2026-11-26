@@ -100,9 +100,9 @@ startup_record() {
   printf 'rex 0.0.2\n' >"$AGENT_SLOT_REX_VERIFIED_VERSIONS"
   doctor
   [ "$status" -eq 0 ]
-  jaq -e --arg r "$STUBS/rexurrect" '.severity == "warning" and .value == "0.0.1"
-    and .next_step.command == "\($r) save && systemctl --user restart rex-server.service"
-    and (.message | test("1\\) update Rex.app and the iOS app to at least 0.0.2.*2\\) .*save.*3\\) systemctl --user restart rex-server.service.*4\\) rerun the two-machine checklist"))' \
+  jaq -e '.severity == "warning" and .value == "0.0.1"
+    and .next_step.command == "agent-slot-rex save && systemctl --user restart rex-server.service"
+    and (.message | test("1\\) update Rex.app and the iOS app to at least 0.0.2.*2\\) agent-slot-rex save.*3\\) systemctl --user restart rex-server.service.*4\\) rerun the two-machine checklist"))' \
     <<<"$(finding rex-restart-pending)"
 }
 
@@ -173,6 +173,17 @@ startup_record() {
     jaq -e --arg u "$unit_name" '.severity == "warning" and .value == $u and .next_step.action == "ask-operator"
       and .next_step.command == "agent-slot list" and (.message | contains("pid 777") and contains($u))' \
       <<<"$(finding tmux-outside-scope)"
+  done
+}
+
+@test "doctor reports tmux-outside-scope for a slot tmux server in a cgroup the Rex server made inside its unit" {
+  local sub
+  for sub in server terminal-blk-a; do
+    printf '0::/user.slice/user-1000.slice/user@1000.service/app.slice/rex-server.service/%s\n' "$sub" \
+      >"$STUBS/cgroup.txt"
+    doctor
+    [ "$status" -eq 0 ]
+    jaq -e '.severity == "warning" and .value == "rex-server.service"' <<<"$(finding tmux-outside-scope)"
   done
 }
 

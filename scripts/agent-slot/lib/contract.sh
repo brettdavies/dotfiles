@@ -102,6 +102,8 @@ login-server-inactive         78    false      0            run
 rexurrect-missing             78    false      0            install
 reconcile-stale               1     false      0            run
 own-tabs-unrestored           0     false      0            ask-operator
+save-paused                   0     false      0            ask-operator
+rexurrect-failed              1     true       1            retry
 tmux-outside-scope            0     false      0            ask-operator
 review-grant-from-slot        1     false      0            ask-operator
 slot-head-missing             1     false      0            run

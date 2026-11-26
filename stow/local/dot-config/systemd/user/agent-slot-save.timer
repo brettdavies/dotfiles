@@ -1,0 +1,10 @@
+[Unit]
+Description=Save the operator's own Rex tabs every 2 minutes
+ConditionHost=bigdaddy
+
+[Timer]
+OnCalendar=*:0/2
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # One-shot enable script for the Linux server's scheduled jobs and long-running user services. The timers run the vault
 # agent-workspace mirror and its health check, the GitHub stars sync, the daily brew and uv tool upgrades, the automatic
-# agent slot sweep, the pass that trusts new slot paths in Claude, and the minute pass that keeps agent slot tabs matched
-# to the slots. The services keep the account's Rex server running with no client connected, and number its tabs.
+# agent slot sweep, the pass that trusts new slot paths in Claude, the minute pass that keeps agent slot tabs matched
+# to the slots, and the save of the operator's own Rex tabs every 2 minutes. The services keep the account's Rex server
+# running with no client connected, and number its tabs.
 #
 # The units ship in the shared `obsidian` and `local` packages and carry ConditionHost=bigdaddy, so a deploy on any
 # other host leaves them inert. This script enables them on that host and retires the crontab lines the timers replace.
@@ -39,6 +40,7 @@ TIMERS=(
   agent-slot-warm.timer
   agent-slot-reconcile.timer
   skill-listing-refresh.timer
+  agent-slot-save.timer
 )
 SERVICES=(
   rex-server.service

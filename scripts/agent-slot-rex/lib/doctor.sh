@@ -74,11 +74,11 @@ $AR_REX_UNIT started (MainPID ${unit_pid:-0}), so the service cannot take the so
       --command "$AR_REXURRECT save && rex --autostart=false server stop && systemctl --user restart $AR_REX_UNIT"
   fi
   if [[ -n $version && -n $REX_SERVER_VERSION && $version != "$REX_SERVER_VERSION" ]]; then
-    steps="1) update Rex.app and the iOS app to at least $version, 2) $AR_REXURRECT save,"
+    steps="1) update Rex.app and the iOS app to at least $version, 2) agent-slot-rex save,"
     steps+=" 3) systemctl --user restart $AR_REX_UNIT, 4) rerun the two-machine checklist"
     doctor_finding warning rex-restart-pending "the installed rex is $version but the running Rex server is \
 $REX_SERVER_VERSION; to move the server to it, in order: $steps" --value "$REX_SERVER_VERSION" --action ask-operator \
-      --command "$AR_REXURRECT save && systemctl --user restart $AR_REX_UNIT"
+      --command "agent-slot-rex save && systemctl --user restart $AR_REX_UNIT"
   fi
   doctor_check_startup
 }
@@ -134,7 +134,8 @@ good pass: $verdict" --value "$log" --command "agent-slot-rex restore"
 }
 
 # The agent-slots tmux server dies with the unit whose cgroup holds it, so a service unit's is a hazard; a scope of its
-# own or a login session's is not. One that runs and does not answer is reported as such; none running is no finding.
+# own or a login session's is not. The unit is the path's first segment after its slices: the Rex server makes cgroups
+# of its own inside its unit's, one per terminal. One that runs and does not answer is reported as such; none running is no finding.
 doctor_check_tmux() {
   local out pid unit status=0
   out=$(mktemp)
@@ -149,8 +150,9 @@ doctor_check_tmux() {
   fi
   ((status == 0)) && [[ $pid =~ ^[0-9]+$ ]] || return 0
   unit=$("$AR_PS" -o cgroup= -p "$pid" 2>/dev/null | tail -1 || true)
-  unit=${unit##*/}
   unit=${unit%%[[:space:]]*}
+  unit=${unit##*.slice/}
+  unit=${unit%%/*}
   [[ $unit == *.service ]] || return 0
   doctor_finding warning tmux-outside-scope "the agent-slots tmux server (pid $pid) runs in $unit's cgroup, so \
 stopping or restarting $unit ends every agent; once no agent is working, tmux -L $AR_TMUX_SOCKET kill-server lets the \

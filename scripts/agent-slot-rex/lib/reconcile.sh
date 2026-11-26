@@ -178,12 +178,7 @@ reconcile_gate() {
   local by=$1 error='' age limit_at
   RECONCILE_SKIP='' RECONCILE_PAST_LIMIT=0
   if ! rex_server_status; then
-    if [[ -z $AR_REX ]]; then
-      error=$(rex_missing_error)
-    else
-      error=$(contract_error_json rex-server-down "no Rex server answers on this host ($(rex_error_line))" \
-        --value "$AR_REX_UNIT" --command "systemctl --user start $AR_REX_UNIT")
-    fi
+    error=$(rex_down_error)
   elif [[ -z $(startup_record_outcome "$REX_SERVER_INSTANCE") ]]; then
     read -r age limit_at < <(contract_json -n -r --arg s "$REX_SERVER_STARTED" --argjson l "$AR_STARTUP_LIMIT" \
       '$s | fromdateiso8601 | "\(now - . | floor) \(. + $l | todateiso8601)"' || true) || true
