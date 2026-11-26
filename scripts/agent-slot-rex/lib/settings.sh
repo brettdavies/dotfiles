@@ -79,3 +79,5 @@ AR_STARTUP_LIMIT=${AGENT_SLOT_REX_STARTUP_LIMIT:-300}
 # How long one `rexurrect save` may run: about ten times the 6.4 s a save of 20 sessions takes, inside both the save
 # service's 2-minute limit and the 90 s a stop of rex-server.service waits for its ExecStop.
 AR_SAVE_BOUND=${AGENT_SLOT_REX_SAVE_BOUND:-60}
+# Three of the save timer's 2-minute intervals: a newest save older than this means the timer's runs save nothing.
+AR_SAVE_STALE=360

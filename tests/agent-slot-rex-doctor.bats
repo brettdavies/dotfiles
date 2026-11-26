@@ -44,12 +44,15 @@ journal_line() {
     >>"$STATE/reconcile.log"
 }
 
-# save_line OK: one save journal line, failed with rexurrect-failed unless OK is true.
+# save_line OUTCOME [SECONDS-AGO]: one save journal line that began that many seconds ago (30 by default): ok, failed
+# with rexurrect-failed, or skipped as save-paused.
 save_line() {
-  jaq -n -c --argjson ok "$1" '{at: "2026-11-02T23:20:00Z", by: "save", pid: 1, ok: $ok, ms: 6400, changed: false,
-    plan: null, skipped: null, rexurrect: (if $ok then "done" else "failed" end), primes: null,
-    error: (if $ok then null else {reason: "rexurrect-failed", message: "rexurrect save exited 1: refused",
-      log: "/r/rexurrect.log"} end)}' >>"$STATE/save.log"
+  jaq -n -c --arg o "$1" --argjson s "${2:-30}" '{at: (now - $s | floor | todate), by: "save", pid: 1,
+    ok: ($o != "failed"), ms: 6400, changed: false, plan: null,
+    skipped: (if $o == "skipped" then "save-paused" else null end),
+    rexurrect: (if $o == "ok" then "done" elif $o == "failed" then "failed" else null end), primes: null,
+    error: (if $o == "failed" then {reason: "rexurrect-failed", message: "rexurrect save exited 1: refused",
+      log: "/r/rexurrect.log"} else null end)}' >>"$STATE/save.log"
 }
 
 # startup_record INSTANCE REXURRECT: the start-up step's record for a Rex server instance.
@@ -205,23 +208,29 @@ startup_record() {
   [ -z "$(finding tmux-outside-scope)" ]
 }
 
-@test "doctor reports own-tabs-unrestored when the running server's start-up record shows rexurrect stopped or skipped" {
+@test "doctor reports own-tabs-unrestored as an error while the running server's start-up record pauses every save" {
   local outcome
-  for outcome in stopped skipped; do
-    startup_record "$REX_STUB_INSTANCE" "$outcome"
-    doctor
-    [ "$status" -eq 0 ]
-    jaq -e --arg o "$outcome" '.severity == "warning" and .value == $o
-      and .next_step.command == "systemctl --user restart rex-server.service"' <<<"$(finding own-tabs-unrestored)"
-  done
-  for outcome in "done" failed; do
-    startup_record "$REX_STUB_INSTANCE" "$outcome"
-    doctor
-    [ -z "$(finding own-tabs-unrestored)" ]
-  done
-  startup_record "$REX_STUB_INSTANCE" stopped
   mkdir -p "$REXURRECT_STATE_DIR"
+  printf '99999999-0000-0000-0000-000000000000\n' >"$REXURRECT_STATE_DIR/restored-instances"
+  for outcome in stopped skipped failed; do
+    startup_record "$REX_STUB_INSTANCE" "$outcome"
+    doctor
+    [ "$status" -eq 1 ]
+    jaq -e --arg o "$outcome" '.severity == "error" and .value == $o and (.message | contains("every save is paused"))
+      and .next_step.command == "systemctl --user restart rex-server.service"' <<<"$(finding own-tabs-unrestored)"
+    assert_error_shape "$(finding own-tabs-unrestored)"
+    [ -z "$(finding save-paused)" ]
+  done
+  startup_record "$REX_STUB_INSTANCE" "done"
+  doctor
+  [ "$status" -eq 0 ]
+  [ -z "$(finding own-tabs-unrestored)" ]
+  startup_record "$REX_STUB_INSTANCE" stopped
   printf '%s\n' "$REX_STUB_INSTANCE" >"$REXURRECT_STATE_DIR/restored-instances"
+  doctor
+  [ -z "$(finding own-tabs-unrestored)" ]
+  startup_record "$REX_STUB_INSTANCE" failed
+  printf '%s restore-failed\n' "$REX_STUB_INSTANCE" >"$REXURRECT_STATE_DIR/restored-instances"
   doctor
   [ -z "$(finding own-tabs-unrestored)" ]
   startup_record 99999999-0000-0000-0000-000000000000 skipped
@@ -229,39 +238,48 @@ startup_record() {
   [ -z "$(finding own-tabs-unrestored)" ]
 }
 
-@test "doctor reports save-paused after a failed restore rexurrect never recorded, which pauses every save" {
-  mkdir -p "$REXURRECT_STATE_DIR"
-  startup_record "$REX_STUB_INSTANCE" failed
-  printf '99999999-0000-0000-0000-000000000000\n' >"$REXURRECT_STATE_DIR/restored-instances"
-  doctor
-  [ "$status" -eq 0 ]
-  jaq -e --arg i "$REX_STUB_INSTANCE" '.severity == "warning" and .value == $i
-    and .next_step.command == "systemctl --user restart rex-server.service"' <<<"$(finding save-paused)"
-  assert_error_shape "$(finding save-paused)"
-  printf '%s restore-failed\n' "$REX_STUB_INSTANCE" >"$REXURRECT_STATE_DIR/restored-instances"
-  doctor
-  [ -z "$(finding save-paused)" ]
+@test "doctor reports the newest save's failure, and nothing once a later save succeeds or pauses" {
+  local outcome
+  for outcome in ok skipped; do
+    save_line failed
+    doctor
+    [ "$status" -eq 1 ]
+    jaq -e --arg log "$STATE/save.log" '.severity == "error" and .value == $log and .log == "/r/rexurrect.log"
+      and (.message | contains("refused")) and .next_step.command == "agent-slot-rex save"' \
+      <<<"$(finding rexurrect-failed)"
+    assert_error_shape "$(finding rexurrect-failed)"
+    save_line "$outcome"
+    doctor
+    [ -z "$(finding rexurrect-failed)" ]
+  done
 }
 
-@test "doctor reports the newest save's failure, and nothing once a later save succeeds" {
-  save_line false
+@test "doctor reports save-stale when the save timer runs but its newest save began more than 6 minutes ago" {
+  save_line ok 400
   doctor
   [ "$status" -eq 1 ]
-  jaq -e --arg log "$STATE/save.log" '.severity == "error" and .value == $log and .log == "/r/rexurrect.log"
-    and (.message | contains("refused")) and .next_step.command == "agent-slot-rex save"' \
-    <<<"$(finding rexurrect-failed)"
-  assert_error_shape "$(finding rexurrect-failed)"
-  save_line true
+  jaq -e --arg log "$STATE/save.log" '.severity == "error" and .value == $log
+    and (.message | test("began 40[0-9] s ago")) and .next_step.command == "agent-slot-rex save"' \
+    <<<"$(finding save-stale)"
+  assert_error_shape "$(finding save-stale)"
+  unit agent-slot-save.timer inactive
   doctor
-  [ -z "$(finding rexurrect-failed)" ]
-}
-
-@test "a missing rexurrect is a warning naming its deploy script" {
-  rm "$STUBS/rexurrect"
+  [ -z "$(finding save-stale)" ]
+  unit agent-slot-save.timer active
+  save_line ok 30
   doctor
   [ "$status" -eq 0 ]
-  jaq -e '.severity == "warning" and .next_step.command == "cd ~/dotfiles && scripts/rexurrect-deploy.sh"' \
+  [ -z "$(finding save-stale)" ]
+}
+
+@test "a missing rexurrect is an error naming its deploy script, and doctor leaves out the saves it failed" {
+  rm "$STUBS/rexurrect"
+  save_line failed
+  doctor
+  [ "$status" -eq 1 ]
+  jaq -e '.severity == "error" and .next_step.command == "cd ~/dotfiles && scripts/rexurrect-deploy.sh"' \
     <<<"$(finding rexurrect-missing)"
+  [ -z "$(finding rexurrect-failed)" ]
 }
 
 @test "from a shell with no XDG_RUNTIME_DIR, doctor still reaches the user manager through the uid's runtime dir" {

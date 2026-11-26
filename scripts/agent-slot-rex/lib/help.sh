@@ -88,9 +88,10 @@ verb_help() {
       'example: agent-slot-rex save' ;;
     doctor) printf '%s\n' 'usage: agent-slot-rex doctor [--output json]' \
       "Checks the rex CLI, the Rex server (that $AR_REX_UNIT started it, its build, and the new-agent action)," \
-      "the reconcile and save timers, the tab-number watcher, the login server, rexurrect and its newest save, a" \
-      "start-up record that pauses every save, the reconcile journal, and where the agent-slots tmux server runs," \
-      "then adds agent-slot doctor's findings. Versions that differ from the verified ones only warn." \
+      "the reconcile and save timers, the tab-number watcher, the login server, rexurrect and its newest save (failed," \
+      "or older than $AR_SAVE_STALE s), a start-up record that pauses every save, the reconcile journal, and where the" \
+      "agent-slots tmux server runs, then adds agent-slot doctor's findings. Versions that differ from the verified" \
+      "ones only warn." \
       'example: agent-slot-rex doctor --output json' ;;
   esac
 }

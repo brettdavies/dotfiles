@@ -88,20 +88,15 @@ $REX_SERVER_VERSION; to move the server to it, in order: $steps" --value "$REX_S
 }
 
 # The start-up step records, for the server instance it ran in, whether rexurrect restored the operator's own tabs.
-# A record that pauses every save until a restart is a finding too; none yet is the start-up step still running. A
+# A record that pauses every save until a restart is the finding; none yet is the start-up step still running. A
 # restore stopped at its bound after rexurrect named the instance restored the tabs, and saves run there.
 doctor_check_startup() {
   save_gate_record
-  case $SAVE_OUTCOME in
-    stopped | skipped)
-      [[ -n $SAVE_SKIP ]] || return 0
-      doctor_finding warning own-tabs-unrestored "the start-up step did not restore the operator's own tabs into this \
-Rex server (rexurrect: $SAVE_OUTCOME); a restart of the server runs it again" --value "$SAVE_OUTCOME" \
-        --action ask-operator --command "systemctl --user restart $AR_REX_UNIT"
-      ;;
-    '') ;;
-    *) [[ -z $SAVE_SKIP ]] || doctor_add warning "$SAVE_SKIP" ;;
-  esac
+  [[ -n $SAVE_OUTCOME && -n $SAVE_SKIP ]] || return 0
+  doctor_finding error own-tabs-unrestored "the start-up step did not restore the operator's own tabs into this Rex \
+server (rexurrect: $SAVE_OUTCOME), so every save is paused until a restart of the server runs the step again; \
+rexurrect list shows the newest snapshot" --value "$SAVE_OUTCOME" --action ask-operator \
+    --command "systemctl --user restart $AR_REX_UNIT"
 }
 
 doctor_check_units() {
@@ -109,7 +104,7 @@ doctor_check_units() {
 not running, so nothing corrects a slot tab that a missed launch or teardown left wrong" \
     --value "$AR_RECONCILE_TIMER" --command "systemctl --user enable --now $AR_RECONCILE_TIMER"
   doctor_active --user "$AR_SAVE_TIMER" || doctor_finding error save-timer-inactive "$AR_SAVE_TIMER is not running, \
-so only a stop of $AR_REX_UNIT saves the operator's own tabs" \
+so only a planned restart of $AR_REX_UNIT saves the operator's own tabs; a host shutdown does not" \
     --value "$AR_SAVE_TIMER" --command "systemctl --user enable --now $AR_SAVE_TIMER"
   doctor_active --user "$AR_TAB_NUMBERS_UNIT" || doctor_finding error tab-numbers-inactive "$AR_TAB_NUMBERS_UNIT is \
 not running, so tabs carry no position number" \
@@ -121,15 +116,24 @@ neither Rex.app nor the iOS app can reach this host's Rex server; scripts/rex-lo
 
 doctor_check_rexurrect() {
   [[ -x $AR_REXURRECT ]] && return 0
-  doctor_finding warning rexurrect-missing "rexurrect is not installed at $AR_REXURRECT, so the operator's own tabs \
-do not come back after a Rex restart" --value "$AR_REXURRECT" --command "cd ~/dotfiles && scripts/rexurrect-deploy.sh"
+  doctor_finding error rexurrect-missing "rexurrect is not installed at $AR_REXURRECT, so the operator's own tabs are \
+neither saved nor brought back after a Rex restart" --value "$AR_REXURRECT" \
+    --command "cd ~/dotfiles && scripts/rexurrect-deploy.sh"
 }
 
-# A newest save that failed left the last snapshot older than the tabs; its logged error is the finding.
+# A newest save that failed left the last snapshot older than the tabs; its logged error is the finding. A run that
+# systemd skipped or killed writes no line, so a running timer whose newest line is old is saving nothing.
 doctor_check_saves() {
-  local log=$AR_SAVE_LOG last
-  [[ -s $log && -x $AR_REXURRECT ]] || return 0
-  last=$(tail -n 1 "$log" | contract_json -c 'select(.ok == false)' 2>/dev/null || true)
+  local log=$AR_SAVE_LOG last age
+  [[ -s $log ]] || return 0
+  last=$(tail -n 1 "$log")
+  age=$(contract_json -r 'now - (.at | fromdateiso8601) | floor' <<<"$last" 2>/dev/null || true)
+  if [[ $age =~ ^[0-9]+$ ]] && ((age > AR_SAVE_STALE)) && doctor_active --user "$AR_SAVE_TIMER"; then
+    doctor_finding error save-stale "$AR_SAVE_TIMER is running, but the newest save began $age s ago; journalctl \
+--user -u ${AR_SAVE_TIMER%.timer}.service shows what its runs did" --value "$log" --command "agent-slot-rex save"
+  fi
+  [[ -x $AR_REXURRECT ]] || return 0
+  last=$(contract_json -c 'select(.ok == false)' <<<"$last" 2>/dev/null || true)
   [[ -n $last ]] || return 0
   doctor_finding error "$(contract_json -r '.error.reason' <<<"$last")" "the newest save, at \
 $(contract_json -r '.at' <<<"$last"), failed: $(contract_json -r '.error.message' <<<"$last")" --value "$log" \

@@ -600,17 +600,18 @@ record is reconciled anyway, and that pass records rexurrect as skipped. `agent-
 `reconcile-stale` once three passes in a row failed or found the lock held.
 
 `agent-slot-save.timer` runs `agent-slot-rex save` every 2 minutes, and `rex-server.service` runs it as it stops, so a
-planned restart keeps the newest tabs; at host shutdown, where the user manager gives every unit 5 s, the server stops
-without it. It runs `rexurrect save` only once the start-up record shows rexurrect's restore into the running server
-`done`, or `failed` or `stopped` at its bound with the server still in rexurrect's `restored-instances` file, because
-rexurrect's save first restores into a server it has not restored, which would open a second copy of every repo session.
-Otherwise it changes nothing, logs `save-paused` (or `rex-server-down`), and exits 0. Each save appends a line to
-`~/.local/state/agent-slot-rex/save.log`. `agent-slot-rex doctor` reports a save timer that is not running, a newest
-save that failed, and a start-up record that pauses every save until the server restarts. `scripts/rexurrect-deploy.sh`
-installs the pinned rexurrect and its zsh recorder, which `.zshrc` loads so a restore types each tab's last command back
-at its prompt. rexurrect's own settings live in `stow/rex/dot-config/rexurrect/config.toml`, which every host that runs
-it shares. On the Linux server, leave `rexurrect setup` and `rexurrect autosave install` unrun: each installs a timer of
-rexurrect's own that saves without that gate.
+planned restart keeps the newest tabs; at host shutdown, where the user manager has 5 s in all to stop every unit, the
+server stops without it. It runs `rexurrect save` only once the start-up record shows rexurrect's restore into the
+running server `done`, or `failed` or `stopped` at its bound with the server still in rexurrect's `restored-instances`
+file, because rexurrect's save first restores into a server it has not restored, which would open a second copy of every
+repo session. Otherwise it changes nothing, logs `save-paused` (or `rex-server-down`), and exits 0. Each save appends a
+line to `~/.local/state/agent-slot-rex/save.log`. `agent-slot-rex doctor` reports a save timer that is not running, a
+newest save that failed or began more than 6 minutes ago (`save-stale`), and a start-up record that pauses every save
+until the server restarts (`own-tabs-unrestored`). `scripts/rexurrect-deploy.sh` installs the pinned rexurrect and its
+zsh recorder, which `.zshrc` loads so a restore types each tab's last command back at its prompt. rexurrect's own
+settings live in `stow/rex/dot-config/rexurrect/config.toml`, which every host that runs it shares. On the Linux server,
+leave `rexurrect setup` and `rexurrect autosave install` unrun: each installs a timer of rexurrect's own that saves
+without that gate.
 
 `rex-server.service` stops and handles memory as the Rex package's own user unit does. Only the server gets SIGTERM, so
 it saves every session before it closes their terminals. An OOM kill in one tab leaves the server running, and each
@@ -1101,11 +1102,12 @@ JSON Schema with every reason, and each verb's `--help` lists the fields it retu
 | `save-timer-inactive`         | 78   | The 2-minute save timer is not running; `systemctl --user enable --now` it                     |
 | `tab-numbers-inactive`        | 78   | The tab-number watcher is not running; `systemctl --user enable --now rex-tab-numbers.service` |
 | `login-server-inactive`       | 78   | The Rex login server is not running, so no Rex client can reach the Linux server               |
-| `rexurrect-missing`           | 78   | Doctor warning: rexurrect is not installed, so own tabs are not restored after a Rex restart   |
+| `rexurrect-missing`           | 78   | rexurrect is not installed, so own tabs are neither saved nor restored after a Rex restart     |
 | `reconcile-stale`             | 1    | The reconcile timer runs but its journal shows no recent good pass; `agent-slot-rex restore`   |
-| `own-tabs-unrestored`         | 0    | Doctor warning: the start-up step did not restore the operator's own tabs into this Rex server |
-| `save-paused`                 | 0    | `save` changed nothing: the start-up step has not restored own tabs into this Rex server       |
-| `rexurrect-failed`            | 1    | `rexurrect save` failed; its `rexurrect.log` says why. `agent-slot-rex save` retries           |
+| `save-stale`                  | 1    | The save timer runs but its newest save began over 6 minutes ago; `agent-slot-rex save`        |
+| `own-tabs-unrestored`         | 1    | Doctor: own tabs are not restored into this Rex server, so every save pauses until a restart   |
+| `save-paused`                 | 0    | `save` changed nothing, as own tabs are not yet restored into this server; see `next_step`     |
+| `rexurrect-failed`            | 1    | `rexurrect save` failed, at once or as doctor read in `save.log`; `rexurrect.log` says why     |
 | `review-grant-from-slot`      | 1    | `grant-review` refused: run from a slot or a slot's pane; the operator or a prime grants       |
 | `slot-head-missing`           | 1    | `grant-review` refused: the slot has no branch or commit to count rounds under                 |
 | `scope-grant-from-slot`       | 1    | `grant-scope` refused: run from a slot or its tmux server; only the operator grants scope      |
