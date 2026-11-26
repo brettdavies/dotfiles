@@ -15,9 +15,55 @@ For the *why* behind these choices, see
 - **Kernel updates:** unattended-upgrades stays enabled; DKMS rebuilds the nvidia module on every kernel install and apt
   fails loud if the build cannot complete.
 - **Manual-marked packages** (so autoremove cannot strip them): `dkms`, `linux-headers-generic`.
+- **Add-on userspace:** `nvidia-utils`, `libnvidia-compute`, `libnvidia-gl`, `libnvidia-encode`, and `libnvidia-decode`,
+  each as `-580-server` at the loaded driver's exact version. The driver install brings the first three; Procedure D
+  adds the encode and decode libraries.
+- **apt guard:** `config/apt/preferences.d/00-nvidia-server-branch.pref`, deployed to `/etc/apt/preferences.d/` by
+  `sudo ~/dotfiles/scripts/nvidia-deploy.sh`, refuses every package built from the non-server driver source, so a plain
+  name such as `libnvidia-encode-580` or NVIDIA's `cuda-drivers` cannot swap out the `-server` userspace.
+  `~/dotfiles/scripts/nvidia-deploy.sh --check` reports drift without root.
+- **The check:** `nvidia-gpu-verify` is the arbiter of a healthy box.
 
-If `nvidia-smi` reports the GPU and `dkms status` shows the nvidia module built for the running kernel, the box is
-healthy — no action needed.
+### The check
+
+`nvidia-gpu-verify` comes with the `local` stow package. A `git pull` relinks only the `claude` and `secrets` packages,
+so on a host that just pulled the command for the first time, link it first:
+
+```bash
+cd ~/dotfiles && scripts/stow-deploy --headless --only local
+nvidia-gpu-verify
+```
+
+It reads the branch and version from the loaded kernel module, then checks the five add-on packages at that version,
+NVENC and NVDEC through two session-free driver calls, the Vulkan device, and the apt guard. It changes nothing and
+opens no encode or decode session, so it is safe while encodes run. A healthy run on 580 (abridged):
+
+```text
+PASS  kernel module 580.178.04 loaded (branch 580)
+PASS  nvidia-utils-580-server 580.178.04-0ubuntu0.24.04.1
+...
+PASS  NVENC answers: API 13.0; ffmpeg built against nv-codec-headers 13.0 or older can encode
+PASS  NVDEC answers: h264=yes/4096 hevc=yes/8192 av1=yes/8192 (supported/max width)
+PASS  Vulkan lists the NVIDIA device at 580.178.04
+PASS  apt guard in effect: no candidate for libnvidia-encode-580 or libnvidia-encode
+
+nvidia-gpu-verify: all checks passed
+```
+
+Each FAIL is followed by a `next:` line holding one command that is safe to paste. A missing library's line is its
+install, pinned to the loaded driver's Debian version so it cannot resolve to the non-server build:
+
+```text
+FAIL  libnvidia-encode-580-server is not installed
+      next: sudo NEEDRESTART_MODE=l apt-get install "libnvidia-encode-580-server=580.178.04-0ubuntu0.24.04.1"
+```
+
+A `next:` line that starts with `sudo` is the operator's to run; an agent without root hands it over. Exit 0 means no
+FAIL, 1 at least one. When no package of the loaded branch is at the loaded version, the check prints one FAIL for it
+and points at `/usr/sbin/dkms status nvidia`: either a reboot is pending, and DKMS shows the new module built for the
+running kernel, or another branch's package replaced this one (see Procedure D), and a reboot would come up with no
+module. When the guard step fails while `~/dotfiles/scripts/nvidia-deploy.sh --check` reports the guard deployed, a
+preferences file that sorts before it overrides it, and `apt-cache policy libnvidia-encode-580` shows the winning pin.
 
 ---
 
@@ -111,7 +157,9 @@ nvidia-smi --query-gpu=persistence_mode --format=csv
 sudo apt-mark manual dkms linux-headers-generic
 ```
 
-That is the entire "lockdown". No apt pinning, no unattended-upgrades blacklist, no systemd timers.
+With the apt guard (`config/apt/preferences.d/00-nvidia-server-branch.pref`, deployed by
+`sudo ~/dotfiles/scripts/nvidia-deploy.sh`) as the one apt pin, that is the entire "lockdown": no unattended-upgrades
+blacklist, no systemd timers.
 
 ### A.5 Cleanup orphaned packages from the prior driver branch
 
@@ -185,10 +233,13 @@ sudo dkms status | grep nvidia
 
 # 2. Confirm GPU is alive.
 nvidia-smi -L
+
+# 3. Confirm the userspace matches the module and the video engines answer.
+nvidia-gpu-verify
 ```
 
-If both succeed, nothing to do. If `dkms status` shows the module is built for an *older* kernel only, the most recent
-kernel install hit a DKMS build failure — see Procedure C.
+If all three succeed, nothing to do. If `dkms status` shows the module is built for an *older* kernel only, the most
+recent kernel install hit a DKMS build failure — see Procedure C.
 
 ---
 
@@ -230,33 +281,103 @@ boot-time fallback.
 ## Procedure D: add an optional NVIDIA userspace library
 
 Use this for NVENC and NVDEC (`libnvidia-encode`, `libnvidia-decode`) or any other optional `libnvidia-*` package. The
-driver is the `-server` branch, so take the `-server` package at the installed driver version. The plain name
+encode and decode libraries are part of the canonical set; until Procedure D installs them, `nvidia-gpu-verify` reports
+them missing, and its `next:` lines are the install commands this procedure builds by hand.
+
+The driver is the `-server` branch, so take the `-server` package at the loaded driver's exact version. The plain name
 (`libnvidia-encode-580`) is the non-server branch, and the NVIDIA CUDA apt repository on this box
 (`/etc/apt/preferences.d/cuda-repository-pin-600` sets priority 600 for it) makes that build the default candidate. A
-simulated install of the plain name removes `nvidia-headless-580-server-open` and `libnvidia-compute-580-server`.
+simulated install of the plain name removes `nvidia-headless-580-server-open` and `libnvidia-compute-580-server`; the
+apt guard refuses it.
+
+Every name below carries the loaded branch, and the simulation is what catches the trap the guard cannot: an add-on of
+another branch (`nvidia-fabricmanager-615`, `libnvidia-encode-615-server`) is a `-server`-side package, so the guard
+lets it through, yet it installs that branch's `nvidia-kernel-common` and removes the loaded branch (a simulated
+`nvidia-fabricmanager-615` removes 11 packages).
 
 ```bash
-# 1. Installed driver version.
-V=$(dpkg-query -W -f='${Version}' nvidia-headless-580-server-open)
+# 1. Loaded branch and the Debian version of its packages.
+B=$(cut -d. -f1 /sys/module/nvidia/version)
+V=$(dpkg-query -W -f='${Version}' "nvidia-kernel-common-$B-server")
 
-# 2. Confirm the -server package is available at that version (Ubuntu's archive).
-apt-cache policy libnvidia-encode-580-server
+# 2. Confirm the -server packages are available at that version (Ubuntu's archive).
+apt-cache policy "libnvidia-encode-$B-server" "libnvidia-decode-$B-server"
 
-# 3. Simulate without root. Expect only Inst lines and "0 upgraded, ... 0 to remove".
-apt-get install -s "libnvidia-encode-580-server=$V" | grep -E '^(Inst|Remv)|upgraded'
+# 3. Simulate without root. Expect "0 upgraded, 2 newly installed, 0 to remove"; any Remv line means stop.
+apt-get install -s "libnvidia-encode-$B-server=$V" "libnvidia-decode-$B-server=$V" | grep -E '^(Inst|Remv)|upgraded'
 
-# 4. Baseline the GPU consumers, then install.
+# 4. Baseline the GPU consumers, then install. NEEDRESTART_MODE=l lists services without restarting any.
 ~/.local/bin/qmd-gpu-verify
-sudo apt-get install -y "libnvidia-encode-580-server=$V"
+sudo NEEDRESTART_MODE=l apt-get install -y "libnvidia-encode-$B-server=$V" "libnvidia-decode-$B-server=$V"
 
-# 5. Verify the library and re-run the consumer checks.
-ldconfig -p | grep libnvidia-encode
+# 5. Verify the libraries and re-run the consumer checks.
+nvidia-gpu-verify
 ~/.local/bin/qmd-gpu-verify
 ```
 
-The encode package pulls in `libnvidia-decode-580-server` at the same version. Remove the same way: `apt-get remove -s`
-with the package names must list only those packages under `Remv`. For the why, see
+Naming both libraries marks both as manually installed, so a later autoremove cannot take the decode library. Running
+processes do not map the new libraries, so nothing restarts. Remove the same way: `apt-get remove -s` with the package
+names must list only those packages under `Remv`. For the why, see
 [`docs/solutions/configuration-fixes/nvidia-addon-userspace-packages-match-driver-branch-and-version.md`](../solutions/configuration-fixes/nvidia-addon-userspace-packages-match-driver-branch-and-version.md).
+
+### NVENC API version and ffmpeg builds
+
+The driver supports one NVENC API version, and an ffmpeg build encodes only when the nv-codec-headers it was built
+against ask for that version or older. The check's NVENC line prints the driver's version. Branch 580 supports 13.0
+[measured]; 615 and 620 are at or above the 610.0 floor of 13.1.
+
+| NVENC API | Minimum driver | nv-codec-headers                | Builds                                                                    |
+| --------- | -------------- | ------------------------------- | ------------------------------------------------------------------------- |
+| 13.1      | 610.0          | `master`                        | BtbN `n9.0-latest` and `master-latest`                                    |
+| 13.0      | 570.0          | `sdk/13.0` branch, `n13.0.19.1` | BtbN `ffmpeg-n8.1-latest-linux64-gpl`; a local build against `n13.0.19.1` |
+| 12.1      | 530.41.03      | 12.1.14                         | Ubuntu `ffmpeg` 6.1.1 (noble universe, `libffmpeg-nvenc-dev` 12.1.14)     |
+| 12.0      | 520.56.06      | `n12.0.16.1`                    | jellyfin-ffmpeg 8.1.3-2                                                   |
+
+A build whose headers are newer than the driver fails at encoder open with "Driver does not support the required nvenc
+API version. Required: 13.1 Found: 13.0". BtbN picks the headers by ffmpeg version in its `scripts.d/50-ffnvcodec.sh`:
+`sdk/11.1` below 8.0, `sdk/13.0` for 8.0 and 8.1, and `master` from 9.0.
+
+---
+
+## Procedure E: change driver branch
+
+Run with the branch number as `B`, after the GPU consumers can take a reboot. Prefer an NVIDIA Long Term Support or
+Production branch whose candidate comes from noble-updates or noble-security: Ubuntu transitions a New Feature Branch to
+the next supported branch on its own.
+
+Name every add-on with the new branch. Naming only the headless metapackage removes `libnvidia-gl-<old>-server` and
+`nvidia-utils-<old>-server` with nothing replacing them, which leaves Vulkan on `llvmpipe` and removes `nvidia-smi`.
+
+```bash
+# 1. The candidate must come from noble-updates or noble-security.
+B=620
+apt-cache policy "nvidia-headless-$B-server-open"
+
+# 2. Simulate the whole set. Expect only the old branch's -server packages under Remv, and no package
+#    without "-server" under Inst (for 615 from 580: 14 newly installed, 12 to remove).
+apt-get install -s "nvidia-headless-$B-server-open" "libnvidia-gl-$B-server" "libnvidia-encode-$B-server" \
+  "libnvidia-decode-$B-server" "nvidia-utils-$B-server" | grep -E '^(Inst|Remv)|upgraded'
+
+# 3. Install without restarting services, then confirm DKMS built the new module for every installed kernel.
+sudo NEEDRESTART_MODE=l apt-get install -y "nvidia-headless-$B-server-open" "libnvidia-gl-$B-server" \
+  "libnvidia-encode-$B-server" "libnvidia-decode-$B-server" "nvidia-utils-$B-server"
+/usr/sbin/dkms status nvidia
+
+# 4. Reboot onto the new module.
+sudo systemctl reboot
+
+# 5. After the reboot.
+nvidia-gpu-verify
+~/dotfiles/scripts/qmd-llama-rebuild.sh
+~/.local/bin/qmd-gpu-verify
+```
+
+Between step 3 and the reboot, `nvidia-gpu-verify` reports that no package of the loaded branch is at the loaded
+version; that is the pending reboot, and step 3's DKMS line shows the new module built. Rollback is this procedure with
+the old branch as `B` and a reboot.
+
+The guard serves hosts on the `-server` driver only. Moving a host to the non-server family starts with
+`sudo rm /etc/apt/preferences.d/00-nvidia-server-branch.pref`, since the guard refuses every package of that family.
 
 ---
 
@@ -281,7 +402,8 @@ with the package names must list only those packages under `Remv`. For the why, 
 ## What this runbook deliberately does not do
 
 - Install or configure a probe/alert/timer. Failure mode is "apt aborts on kernel install" — visible the next time the
-  operator runs `apt` or logs in. The carrying cost of a probe was not worth the value for this user's workflow.
+  operator runs `apt` or logs in. `nvidia-gpu-verify` is a command the operator runs at Procedures B, D, and E, not a
+  timer. The carrying cost of a probe was not worth the value for this user's workflow.
 - Pin the kernel or block kernel upgrades. The point of DKMS is to make kernel upgrades safe; pinning would defeat the
   design.
 - Touch the CUDA toolkit. Driver and toolkit upgrade on independent schedules.

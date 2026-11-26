@@ -130,6 +130,23 @@ changes nothing. `tests/sysctl-deploy.bats` drives the copy through `--dest DIR`
 
 To add a setting, drop a file in `config/sysctl.d/`, run `sudo scripts/sysctl-deploy.sh`, and do not add it to `stow/`.
 
+### NVIDIA apt guard (`config/apt/preferences.d/`)
+
+Linux GPU hosts on Ubuntu's `-server` NVIDIA driver only. `config/apt/preferences.d/00-nvidia-server-branch.pref` pins
+every package built from the non-server driver source (`src:nvidia-graphics-drivers` and `-NNN`), plus the
+`nvidia-open` and `cuda-drivers` metapackages, to -1 from every origin, so a plain name such as `libnvidia-encode-580`
+or NVIDIA's unversioned `cuda-drivers` cannot remove the `-server` userspace. apt takes the first matching pin in file
+order, and the `00-` prefix keeps the guard ahead of the `nvidia-driver-pin` file NVIDIA's pinning package installs.
+The guard does not refuse another branch's `-server` add-ons (`nvidia-fabricmanager-615`), which remove the loaded
+branch; the runbook's simulation step catches those. A host moving to the non-server driver removes the guard first.
+
+`scripts/nvidia-deploy.sh` copies every file in the directory to `/etc/apt/preferences.d/` as root; `--check` compares
+without root, and `--dest DIR` is the test seam. Whether apt honours the copy is a resolution question:
+`nvidia-gpu-verify` (`stow/local/dot-local/bin/`) asks `apt-cache policy`, and also checks the five add-on packages at
+the loaded module's version, NVENC, NVDEC, and Vulkan. `tests/nvidia-deploy.bats` resolves the guard with real apt
+against a sandbox repository of stub packages; `tests/nvidia-gpu-verify.bats` stubs `dpkg-query`, `apt-cache`,
+`vulkaninfo`, `python3`, and `timeout`. Runbook: `docs/runbooks/headless-gpu-server-nvidia-driver.md`.
+
 ### SSH Daemon Locale (`scripts/sshd-locale-deploy.sh`)
 
 There is no config file to copy for this one. `AcceptEnv` accumulates across `/etc/ssh/sshd_config` and every
