@@ -496,6 +496,9 @@ flowchart TB
   fixes, 1 P1, 2 P2, 3 P3, all six confirmed by its validator; verdict in a PR #541 comment. The P1: a half-configured
   `nvidia-dkms` package, which a failed DKMS build in its postinst leaves, makes the DKMS step skip while the first FAIL
   reads as a pending reboot.
+- 2026-11-27 01:33 CST: `/compound-engineering:ce-code-review` round 2 started on the two round-1 P1 fixes (the
+  half-configured `nvidia-dkms` package and the autoremove trap), run from a clone of the fixed head with base
+  `74031bf`.
 
 ## Appendix: Engineering Review (plan-eng-review, 2026-11-26)
 
