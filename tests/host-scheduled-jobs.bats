@@ -183,10 +183,11 @@ EOF
   done
 }
 
-@test "the NVIDIA check runs daily and may set its unit's status text for the failed-units notice" {
+@test "the NVIDIA check runs daily, is bounded, and may set its unit's status text for the failed-units notice" {
   local unit="$LOCAL_UNITS/nvidia-gpu-verify"
   [ "$(_unit_key "$unit.service" Service ExecStart)" = '%h/.local/bin/nvidia-gpu-verify' ]
   [ "$(_unit_key "$unit.service" Service NotifyAccess)" = all ]
+  [ "$(_unit_key "$unit.service" Service TimeoutStartSec)" = 5min ]
   [ "$(_unit_key "$unit.timer" Timer OnCalendar)" = daily ]
 }
 

@@ -18,10 +18,29 @@ PROG=nvidia-lts-watch
 PKG=nvidia-headless-620-server-open
 RUNBOOK=docs/runbooks/headless-gpu-server-nvidia-driver.md
 
-if [ "$#" -ne 0 ]; then
-  echo "usage: $PROG" >&2
-  exit 2
-fi
+usage() {
+  cat <<EOF
+usage: $PROG [-h | --help]
+
+Exit 1 once apt-cache policy lists $PKG
+from a -updates or -security pocket, which makes Procedure E in
+~/dotfiles/$RUNBOOK ready.
+Exit 0 while apt knows no such package or only an unreleased one.
+Read-only, no root.
+EOF
+}
+
+case "$#:${1:-}" in
+  0:) ;;
+  1:-h | 1:--help)
+    usage
+    exit 0
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac
 
 policy="$(apt-cache policy "$PKG" 2>/dev/null)"
 if [ -z "$policy" ]; then

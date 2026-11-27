@@ -9,6 +9,9 @@ Environment=PATH=/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin
 # notice at session start shows that text beside the unit's name.
 NotifyAccess=all
 ExecStart=%h/.local/bin/nvidia-gpu-verify
+# A probe stuck in uninterruptible sleep on a wedged GPU outlives its 30 s timeout, and a oneshot has no start
+# timeout by default, so without one the unit would stay activating and never show as failed.
+TimeoutStartSec=5min
 Nice=19
 
 # Hardening

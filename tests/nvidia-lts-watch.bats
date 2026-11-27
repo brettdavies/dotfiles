@@ -81,7 +81,14 @@ policy() {
   [ ! -e "$FIXTURE/notify" ]
 }
 
-@test "an argument is a usage error (exit 2)" {
+@test "-h and --help print the usage and exit 0; any other argument is a usage error (exit 2)" {
+  local flag
+  for flag in -h --help; do
+    run "$WATCH" "$flag"
+    [ "$status" -eq 0 ]
+    [[ "$output" == "usage: nvidia-lts-watch [-h | --help]"* ]]
+    [[ "$output" == *"Read-only, no root."* ]]
+  done
   run "$WATCH" --bogus
   [ "$status" -eq 2 ]
   [[ "$output" == "usage: nvidia-lts-watch"* ]]

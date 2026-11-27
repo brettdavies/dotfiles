@@ -74,7 +74,7 @@ fi
 if [ "$mode" = check ]; then
   drift=0
   for src in "${files[@]}"; do
-    name="$(basename "$src")"
+    name="${src##*/}"
     if cmp -s "$src" "$LIVE_DEST/$name"; then
       echo "OK: $LIVE_DEST/$name matches the repo"
     elif [ -e "$LIVE_DEST/$name" ]; then
@@ -101,12 +101,12 @@ fi
 
 copied=0
 for src in "${files[@]}"; do
-  target="$dest/$(basename "$src")"
+  target="$dest/${src##*/}"
   if cmp -s "$src" "$target"; then
     continue
   fi
   install -m 0644 "$src" "$target"
-  echo "NOTE: copied $(basename "$src") to $dest"
+  echo "NOTE: copied ${src##*/} to $dest"
   copied=$((copied + 1))
 done
 

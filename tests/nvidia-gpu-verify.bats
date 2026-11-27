@@ -5,11 +5,12 @@
 # driver package is installed, that DKMS built the module for every kernel, and
 # that NVENC, NVDEC, Vulkan, and the apt guard answer.
 #
-# dpkg-query, apt-cache, vulkaninfo, python3, timeout, and dkms are stubs that
-# answer from files under $FIXTURE, so a test writes only the answer it is
-# about, and systemd-notify logs its arguments to $FIXTURE/notify. The python3 stub runs the real interpreter when the test writes no
-# canned probe answer, and the timeout stub runs its command unless the test
-# asks it to time out. The loaded module comes from a fixture file through
+# dpkg-query, apt-cache, apt-mark, vulkaninfo, python3, timeout, and dkms are
+# stubs that answer from files under $FIXTURE, so a test writes only the answer
+# it is about, and systemd-notify logs its arguments to $FIXTURE/notify. The
+# python3 stub runs the real interpreter when the test writes no canned probe
+# answer, and the timeout stub runs its command unless the test asks it to
+# time out. The loaded module comes from a fixture file through
 # NVIDIA_GPU_VERIFY_PROC_VERSION, the kernels from a shared /boot stand-in, and
 # the deployed guard from a shared copy of the repo's, which
 # scripts/nvidia-deploy.sh --check compares for real.
@@ -22,6 +23,10 @@ CHECK="$BATS_TEST_DIRNAME/../stow/local/dot-local/bin/nvidia-gpu-verify"
 ADDONS=(nvidia-utils libnvidia-compute libnvidia-gl libnvidia-encode libnvidia-decode)
 DKMS_NEXT="next: /usr/sbin/dkms status nvidia"
 GUARD_NAME=00-nvidia-server-branch.pref
+# The deploy the check names is the one in the checkout it runs from, written
+# with ~ for $HOME as a reader would type it.
+REPO_DIR="$(cd "$BATS_TEST_DIRNAME/.." && pwd -P)"
+DEPLOY_NEXT="next: sudo ${REPO_DIR/#"$HOME"/\~}/scripts/nvidia-deploy.sh"
 KERNELS=(6.8.0-146-generic 6.8.0-151-generic)
 
 setup_file() {
@@ -33,21 +38,27 @@ setup_file() {
   cat >"$stubs/dpkg-query" <<'EOF'
 #!/bin/sh
 # dpkg-query -W -f=FORMAT PATTERN..., answered from $FIXTURE/dpkg
-# ("<package> <version> [<source>]"), with dpkg's three-character status "ii ".
-# A line without a source has the package's own name as its source, as dpkg
-# reports for a package built from a source of the same name.
+# ("[<status>] <package> <version> [<source>]"). The status is dpkg's
+# abbreviation, ii unless the line starts with one, printed three characters
+# wide as dpkg prints it; a "un" line has no version, and its field prints
+# empty. A line without a source has the package's own name as its source, as
+# dpkg reports for a package built from a source of the same name.
 format=$2
 shift 2
 found=1
 for pattern in "$@"; do
-  while read -r pkg ver src; do
+  while read -r a b c d; do
+    case $a in
+      [uihrp][ncHUFWti] | [uihrp][ncHUFWti]R) status=$a pkg=$b ver=$c src=$d ;;
+      *) status=ii pkg=$a ver=$b src=$c ;;
+    esac
     case $pkg in
       $pattern)
         case $format in
-          *source:Package*) printf 'ii  %s %s %s\n' "$pkg" "$ver" "${src:-$pkg}" ;;
-          *Package*) printf 'ii  %s %s\n' "$pkg" "$ver" ;;
-          *Version*) printf 'ii  %s\n' "$ver" ;;
-          *) printf 'ii \n' ;;
+          *source:Package*) printf '%-3s %s %s %s\n' "$status" "$pkg" "$ver" "${src:-$pkg}" ;;
+          *Package*) printf '%-3s %s %s\n' "$status" "$pkg" "$ver" ;;
+          *Version*) printf '%-3s %s\n' "$status" "$ver" ;;
+          *) printf '%-3s\n' "$status" ;;
         esac
         found=0
         ;;
@@ -58,12 +69,32 @@ done
 EOF
   cat >"$stubs/apt-cache" <<'EOF'
 #!/bin/sh
-# apt-cache policy PACKAGE..., answered from $FIXTURE/apt ("<package> <candidate>").
+# apt-cache policy PACKAGE..., answered from $FIXTURE/apt ("<package> <candidate>"),
+# and apt-cache rdepends --installed PACKAGE, from $FIXTURE/rdepends
+# ("<package> <installed reverse dependency>").
+if [ "$1" = rdepends ]; then
+  printf '%s\nReverse Depends:\n' "$3"
+  [ ! -f "$FIXTURE/rdepends" ] && exit 0
+  while read -r pkg dep; do
+    [ "$pkg" = "$3" ] && printf '  %s\n' "$dep"
+  done <"$FIXTURE/rdepends"
+  exit 0
+fi
 shift
 for name in "$@"; do
   while read -r pkg cand; do
     [ "$pkg" = "$name" ] && printf '%s:\n  Installed: (none)\n  Candidate: %s\n  Version table:\n' "$pkg" "$cand"
   done <"$FIXTURE/apt"
+done
+exit 0
+EOF
+  cat >"$stubs/apt-mark" <<'EOF'
+#!/bin/sh
+# apt-mark showauto PACKAGE..., answered from $FIXTURE/auto, one package a line.
+shift
+[ -f "$FIXTURE/auto" ] || exit 0
+for name in "$@"; do
+  grep -qx "$name" "$FIXTURE/auto" && printf '%s\n' "$name"
 done
 exit 0
 EOF
@@ -98,7 +129,7 @@ EOF
 #!/bin/sh
 printf '%s\n' "$*" >>"$FIXTURE/notify"
 EOF
-  chmod 555 "$stubs/dpkg-query" "$stubs/apt-cache" "$stubs/vulkaninfo" "$stubs/python3" "$stubs/timeout" "$stubs/dkms" \
+  chmod 555 "$stubs/dpkg-query" "$stubs/apt-cache" "$stubs/apt-mark" "$stubs/vulkaninfo" "$stubs/python3" "$stubs/timeout" "$stubs/dkms" \
     "$stubs/systemd-notify"
 
   mkdir -p "$BATS_FILE_TMPDIR/boot" "$BATS_FILE_TMPDIR/prefs"
@@ -166,6 +197,11 @@ healthy() {
   loaded_module "$1"
   installed "$branch" "$2"
   printf 'nvidia-dkms-%s-server-open %s nvidia-graphics-drivers-%s-server\n' "$branch" "$2" "$branch" >>"$FIXTURE/dpkg"
+  # dpkg also lists packages it knows but has not installed, as the GPU server
+  # does for 37 of its 59 NVIDIA rows.
+  printf '%s\n' 'un nvidia-dkms-kernel' 'un nvidia-kernel-common-570-server' \
+    'rc linux-modules-nvidia-570-server-open-6.8.0-100-generic 6.8.0-100.100+1 linux-restricted-signatures' \
+    >>"$FIXTURE/dpkg"
   dkms_built "${2%%-*}"
   printf 'nvenc ok 13.0\nnvdec ok h264=yes/4096 hevc=yes/8192 av1=yes/8192\n' >"$FIXTURE/probe"
   vulkan_devices "NVIDIA:$1" "llvmpipe:Mesa 25.2.8"
@@ -197,6 +233,7 @@ assert_userspace_mismatch() {
   [[ "$output" == *"PASS  NVENC answers: API 13.0"* ]]
   [[ "$output" == *"PASS  NVDEC answers: h264=yes/4096 hevc=yes/8192 av1=yes/8192"* ]]
   [[ "$output" == *"PASS  Vulkan lists the NVIDIA device at 580.178.04"* ]]
+  [[ "$output" == *"PASS  apt autoremove keeps every -580-server add-on, with or without other branches' packages"* ]]
   [[ "$output" == *"PASS  2 other -580-server package(s) at 580.178.04"* ]]
   [[ "$output" == *"PASS  no package the apt guard refuses is installed"* ]]
   [[ "$output" == *"PASS  DKMS has built nvidia 580.178.04 for every kernel: ${KERNELS[*]}"* ]]
@@ -210,6 +247,8 @@ assert_userspace_mismatch() {
   healthy 580.178.04 580.178.04-0ubuntu0.24.04.1
   : >"$FIXTURE/dpkg"
   installed 580 580.178.04-0ubuntu0.24.04.1 nvidia-utils libnvidia-compute libnvidia-gl libnvidia-decode
+  # A removed package keeps its configuration files, and dpkg lists it as rc.
+  printf 'rc libnvidia-encode-580-server 580.126.20-0ubuntu0.24.04.2 nvidia-graphics-drivers-580-server\n' >>"$FIXTURE/dpkg"
   run "$CHECK"
   [ "$status" -eq 1 ]
   [[ "$output" == *"FAIL  libnvidia-encode-580-server is not installed"* ]]
@@ -271,6 +310,72 @@ assert_userspace_mismatch() {
   [[ "$output" == *"nvidia-gpu-verify: 2 check(s) failed"* ]]
 }
 
+@test "a -server add-on or firmware newer than the loaded module points at DKMS, with no install or remove line" {
+  healthy 580.178.04 580.178.04-0ubuntu0.24.04.1
+  : >"$FIXTURE/dpkg"
+  installed 580 580.178.04-0ubuntu0.24.04.1 nvidia-utils libnvidia-compute libnvidia-gl libnvidia-decode
+  printf '%s\n' 'libnvidia-encode-580-server 580.196.07-0ubuntu0.24.04.1 nvidia-graphics-drivers-580-server' \
+    'nvidia-firmware-580-server-580.196.07 580.196.07-0ubuntu0.24.04.1 nvidia-graphics-drivers-580-server' \
+    >>"$FIXTURE/dpkg"
+  run "$CHECK"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAIL  libnvidia-encode-580-server is 580.196.07-0ubuntu0.24.04.1, newer than the loaded module 580.178.04: a reboot is pending, or an upgrade stopped partway"$'\n'"      $DKMS_NEXT"* ]]
+  [[ "$output" == *"FAIL  nvidia-firmware-580-server-580.196.07 is 580.196.07-0ubuntu0.24.04.1 and the loaded module is 580.178.04: a reboot is pending, or an upgrade stopped partway"$'\n'"      $DKMS_NEXT"* ]]
+  [[ "$output" != *"apt-get install"* ]]
+  [[ "$output" != *"apt-get remove"* ]]
+}
+
+@test "a half-configured nvidia-dkms package fails, and DKMS is still checked for every kernel" {
+  healthy 580.178.04 580.196.07-0ubuntu0.24.04.1
+  sed -i.bak 's/^nvidia-dkms-/iF nvidia-dkms-/' "$FIXTURE/dpkg"
+  dkms_built 580.196.07 "${KERNELS[0]}"
+  run "$CHECK"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAIL  nvidia-dkms-580-server-open is not fully configured (dpkg status iF): its postinst stopped, most often on a DKMS build that failed, so do not reboot until the builds below pass"$'\n'"      next: sudo dpkg --configure -a"* ]]
+  [[ "$output" == *"FAIL  DKMS has not built nvidia 580.196.07 for kernel ${KERNELS[1]}, so a boot into it comes up with no GPU"* ]]
+  [[ "$output" != *"SKIP  no nvidia-dkms package installed"* ]]
+}
+
+@test "an auto-installed add-on that only another branch's leftover holds fails, and the leftover's removal marks it manual first" {
+  healthy 580.178.04 580.178.04-0ubuntu0.24.04.1
+  printf 'nvidia-utils-570-server 570.211.01-0ubuntu1.24.04.1 nvidia-graphics-drivers-570-server\n' >>"$FIXTURE/dpkg"
+  printf 'nvidia-utils-580-server\n' >"$FIXTURE/auto"
+  printf 'nvidia-utils-580-server nvidia-utils-570-server\n' >"$FIXTURE/rdepends"
+  run "$CHECK"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAIL  nvidia-utils-580-server is marked auto-installed and only nvidia-utils-570-server, of another branch, depends on it, so removing that lets apt autoremove remove nvidia-utils-580-server"$'\n'"      next: sudo apt-mark manual nvidia-utils-580-server"* ]]
+  [[ "$output" == *"FAIL  nvidia-utils-570-server 570.211.01-0ubuntu1.24.04.1 is from branch 570, and the loaded module is branch 580"$'\n'"      next: sudo apt-mark manual nvidia-utils-580-server && sudo apt-get remove nvidia-utils-570-server"* ]]
+  [[ "$output" == *"nvidia-gpu-verify: 2 check(s) failed"* ]]
+}
+
+@test "an auto-installed add-on that no installed package depends on fails with an apt-mark line" {
+  healthy 580.178.04 580.178.04-0ubuntu0.24.04.1
+  printf 'libnvidia-encode-580-server\n' >"$FIXTURE/auto"
+  run "$CHECK"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAIL  libnvidia-encode-580-server is marked auto-installed and no installed package depends on it, so apt autoremove removes it"$'\n'"      next: sudo apt-mark manual libnvidia-encode-580-server"* ]]
+  [[ "$output" == *"nvidia-gpu-verify: 1 check(s) failed"* ]]
+}
+
+@test "an auto-installed add-on held by a package of its own branch, or by any other package, passes" {
+  healthy 580.178.04 580.178.04-0ubuntu0.24.04.1
+  printf '%s\n' \
+    'nvidia-utils-570-server 570.211.01-0ubuntu1.24.04.1 nvidia-graphics-drivers-570-server' \
+    'nvidia-headless-580-server-open 580.178.04-0ubuntu0.24.04.1 nvidia-graphics-drivers-580-server' \
+    >>"$FIXTURE/dpkg"
+  printf '%s\n' nvidia-utils-580-server libnvidia-compute-580-server >"$FIXTURE/auto"
+  printf '%s\n' \
+    'nvidia-utils-580-server nvidia-utils-570-server' \
+    'nvidia-utils-580-server |nvidia-headless-580-server-open' \
+    'libnvidia-compute-580-server ollama' \
+    >"$FIXTURE/rdepends"
+  run "$CHECK"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"PASS  apt autoremove keeps every -580-server add-on, with or without other branches' packages"* ]]
+  [[ "$output" == *"next: sudo apt-get remove nvidia-utils-570-server"* ]]
+  [[ "$output" == *"nvidia-gpu-verify: 1 check(s) failed"* ]]
+}
+
 @test "a -server package of the loaded branch at another version fails pointing at DKMS, with no install line" {
   healthy 580.178.04 580.178.04-0ubuntu0.24.04.1
   printf 'nvidia-compute-utils-580-server 580.196.07-0ubuntu0.24.04.1 nvidia-graphics-drivers-580-server\n' >>"$FIXTURE/dpkg"
@@ -305,11 +410,11 @@ assert_userspace_mismatch() {
   mkdir -p "$NVIDIA_DEPLOY_PREFERENCES_DIR"
   run "$CHECK"
   [ "$status" -eq 1 ]
-  [[ "$output" == *"FAIL  $NVIDIA_DEPLOY_PREFERENCES_DIR/$GUARD_NAME is not deployed"$'\n'"      next: sudo ~/dotfiles/scripts/nvidia-deploy.sh"* ]]
+  [[ "$output" == *"FAIL  $NVIDIA_DEPLOY_PREFERENCES_DIR/$GUARD_NAME is not deployed"$'\n'"      $DEPLOY_NEXT"* ]]
   printf 'Package: *\nPin: version *\nPin-Priority: 500\n' >"$NVIDIA_DEPLOY_PREFERENCES_DIR/$GUARD_NAME"
   run "$CHECK"
   [ "$status" -eq 1 ]
-  [[ "$output" == *"FAIL  $NVIDIA_DEPLOY_PREFERENCES_DIR/$GUARD_NAME differs from config/apt/preferences.d/$GUARD_NAME"$'\n'"      next: sudo ~/dotfiles/scripts/nvidia-deploy.sh"* ]]
+  [[ "$output" == *"FAIL  $NVIDIA_DEPLOY_PREFERENCES_DIR/$GUARD_NAME differs from config/apt/preferences.d/$GUARD_NAME"$'\n'"      $DEPLOY_NEXT"* ]]
 }
 
 @test "a kernel without an installed DKMS build fails naming it; no nvidia-dkms package skips" {
@@ -331,13 +436,13 @@ assert_userspace_mismatch() {
   [[ "$output" == *"SKIP  no nvidia-dkms package installed; DKMS builds not checked"* ]]
 }
 
-@test "under systemd a failed run sets the unit's status to its first FAIL and that FAIL's next command" {
+@test "under systemd a failed run sets the unit's status to the FAIL count, the first FAIL, and its next command" {
   healthy 580.178.04 580.178.04-0ubuntu0.24.04.1
   printf 'nvidia-utils-570-server 570.211.01-0ubuntu1.24.04.1 nvidia-graphics-drivers-570-server\n' >>"$FIXTURE/dpkg"
   printf 'libnvidia-encode-580 580.196.11-1ubuntu1\n' >"$FIXTURE/apt"
   run env NOTIFY_SOCKET="$BATS_TEST_TMPDIR/notify.sock" "$CHECK"
   [ "$status" -eq 1 ]
-  [ "$(cat "$FIXTURE/notify")" = "--status=nvidia-utils-570-server 570.211.01-0ubuntu1.24.04.1 is from branch 570, and the loaded module is branch 580; next: sudo apt-get remove nvidia-utils-570-server" ]
+  [ "$(cat "$FIXTURE/notify")" = "--status=2 check(s) failed, first: nvidia-utils-570-server 570.211.01-0ubuntu1.24.04.1 is from branch 570, and the loaded module is branch 580; next: sudo apt-get remove nvidia-utils-570-server" ]
   rm -f "$FIXTURE/notify"
   run "$CHECK"
   [ "$status" -eq 1 ]
@@ -446,7 +551,7 @@ assert_userspace_mismatch() {
   run "$CHECK"
   [ "$status" -eq 1 ]
   [[ "$output" == *"FAIL  apt offers libnvidia-encode-580 580.196.11-1ubuntu1, which removes the -server driver"* ]]
-  [[ "$output" == *"next: sudo ~/dotfiles/scripts/nvidia-deploy.sh"* ]]
+  [[ "$output" == *"$DEPLOY_NEXT"* ]]
 }
 
 @test "apt offering only the unversioned encode library fails naming the deploy" {
@@ -455,7 +560,7 @@ assert_userspace_mismatch() {
   run "$CHECK"
   [ "$status" -eq 1 ]
   [[ "$output" == *"FAIL  apt offers libnvidia-encode 580.105.08-0ubuntu1, which removes the -server driver"* ]]
-  [[ "$output" == *"next: sudo ~/dotfiles/scripts/nvidia-deploy.sh"* ]]
+  [[ "$output" == *"$DEPLOY_NEXT"* ]]
 }
 
 @test "apt knowing neither non-server encode name skips the guard step" {

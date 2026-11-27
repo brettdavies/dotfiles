@@ -133,25 +133,27 @@ To add a setting, drop a file in `config/sysctl.d/`, run `sudo scripts/sysctl-de
 ### NVIDIA apt guard (`config/apt/preferences.d/`)
 
 Linux GPU hosts on Ubuntu's `-server` NVIDIA driver only. `config/apt/preferences.d/00-nvidia-server-branch.pref` pins
-every package built from the non-server driver source (`src:nvidia-graphics-drivers` and `-NNN`), plus the
-`nvidia-open` and `cuda-drivers` metapackages, to -1 from every origin, so a plain name such as `libnvidia-encode-580`
-or NVIDIA's unversioned `cuda-drivers` cannot remove the `-server` userspace. apt takes the first matching pin in file
-order, and the `00-` prefix keeps the guard ahead of the `nvidia-driver-pin` file NVIDIA's pinning package installs.
-The guard does not refuse another branch's `-server` add-ons (`nvidia-fabricmanager-615`), which remove the loaded
-branch; the runbook's simulation step catches those. A host moving to the non-server driver removes the guard first.
+every package built from the non-server driver source (`src:nvidia-graphics-drivers` and `-NNN`), plus the `nvidia-open`
+and `cuda-drivers` metapackages, to -1 from every origin, so a plain name such as `libnvidia-encode-580` or NVIDIA's
+unversioned `cuda-drivers` cannot remove the `-server` userspace. apt takes the first matching pin in file order, and
+the `00-` prefix keeps the guard ahead of the `nvidia-driver-pin` file NVIDIA's pinning package installs. The guard does
+not refuse another branch's `-server` add-ons (`nvidia-fabricmanager-615`), which remove the loaded branch; the
+runbook's simulation step catches those. A host moving to the non-server driver removes the guard first.
 
 `scripts/nvidia-deploy.sh` copies every file in the directory to `/etc/apt/preferences.d/` as root; `--check` compares
 without root, and `--dest DIR` is the test seam. Whether apt honours the copy is a resolution question:
 `nvidia-gpu-verify` (`stow/local/dot-local/bin/`) asks `apt-cache policy`, and runs `--check` for the copy itself. It
 also checks the installed packages against the loaded module: the five add-ons and every other package of a `-server`
 driver source at its branch and version, and no installed package matching the guard's `src:` patterns, which it reads
-from the repo's guard. It checks that DKMS built the module for every kernel in `/boot`, and NVENC, NVDEC, and Vulkan.
-On the Linux server its user timer runs it daily, and a failed run sets the unit's status text to the first FAIL and
-its `next:` line, which the failed-units notice shows at session start. `nvidia-lts-watch` fails its own daily timer
-once apt sees the 620-server driver released.
-`tests/nvidia-deploy.bats` resolves the guard with real apt against a sandbox repository of stub packages;
-`tests/nvidia-gpu-verify.bats` stubs `dpkg-query`, `apt-cache`, `vulkaninfo`, `python3`, `timeout`, and `dkms`.
-Runbook: `docs/runbooks/headless-gpu-server-nvidia-driver.md`.
+from the repo's guard. An add-on marked auto-installed fails when only another branch's package depends on it, since
+removing that package lets autoremove take the add-on, and each removal it prints marks such an add-on manual first. It
+checks that DKMS built the module for every kernel in `/boot` and that dpkg configured the `nvidia-dkms` package, and
+NVENC, NVDEC, and Vulkan. On the Linux server its
+user timer runs it daily, and a failed run sets the unit's status text to the number of FAILs, the first FAIL, and its
+`next:` line, which the failed-units notice shows at session start. `nvidia-lts-watch` fails its own daily timer once
+apt sees the 620-server driver released. `tests/nvidia-deploy.bats` resolves the guard with real apt against a sandbox
+repository of stub packages; `tests/nvidia-gpu-verify.bats` stubs `dpkg-query`, `apt-cache`, `apt-mark`, `vulkaninfo`,
+`python3`, `timeout`, `dkms`, and `systemd-notify`. Runbook: `docs/runbooks/headless-gpu-server-nvidia-driver.md`.
 
 ### SSH Daemon Locale (`scripts/sshd-locale-deploy.sh`)
 
@@ -357,16 +359,14 @@ the live pattern.
 no `--lt-url`, its functions use the `languagetool` Tailscale Service under the tailnet's full MagicDNS name,
 `https://languagetool.<suffix>`. The suffix comes from `tailscale status --json` when a function runs, so the public
 repo never holds the tailnet's name and sourcing the file asks `tailscale` for nothing. A Service answers https on 443
-only: a short name fails its TLS handshake and an `http://…:8081` URL is refused. The Tailscale CLI therefore has to
-be on `PATH` or, on macOS, at the app bundle's path (`LT_TAILSCALE_APP` overrides it), or `LANGUAGETOOL_URL` has to be
-set.
+only: a short name fails its TLS handshake and an `http://…:8081` URL is refused. The Tailscale CLI therefore has to be
+on `PATH` or, on macOS, at the app bundle's path (`LT_TAILSCALE_APP` overrides it), or `LANGUAGETOOL_URL` has to be set.
 
-When the server does not answer, no URL can be worked out, or a file's `/v2/check` request fails, `lt_check` exits 2
-(1 when the files it did check have blocking matches) and prints a `WARNING:` notice on stderr: the cause, what did not
-run, the command that diagnoses it, and how to name another server.
-Exit 2 stays the caller's to read: the agentnative-* scripts continue on Vale's verdict alone, or fail under
-`--lt-only`. A caller that must not pass without grammar checking treats exit 2 as a failure. `tests/languagetool.bats`
-stubs `tailscale` and `curl` to cover both paths.
+When the server does not answer, no URL can be worked out, or a file's `/v2/check` request fails, `lt_check` exits 2 (1
+when the files it did check have blocking matches) and prints a `WARNING:` notice on stderr: the cause, what did not
+run, the command that diagnoses it, and how to name another server. Exit 2 stays the caller's to read: the agentnative-*
+scripts continue on Vale's verdict alone, or fail under `--lt-only`. A caller that must not pass without grammar
+checking treats exit 2 as a failure. `tests/languagetool.bats` stubs `tailscale` and `curl` to cover both paths.
 
 ---
 

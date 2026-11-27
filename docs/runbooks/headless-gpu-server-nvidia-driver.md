@@ -14,7 +14,8 @@ For the *why* behind these choices, see
 - **CUDA toolkit:** 12.8.x (driver 580 is backward-compatible).
 - **Kernel updates:** unattended-upgrades stays enabled; DKMS rebuilds the nvidia module on every kernel install and apt
   fails loud if the build cannot complete.
-- **Manual-marked packages** (so autoremove cannot strip them): `dkms`, `linux-headers-generic`.
+- **Manual-marked packages** (so autoremove cannot strip them): `dkms`, `linux-headers-generic`, and any add-on that
+  only another branch's package depends on (on the Linux server, `nvidia-utils-580-server`).
 - **Add-on userspace:** `nvidia-utils`, `libnvidia-compute`, `libnvidia-gl`, `libnvidia-encode`, and `libnvidia-decode`,
   each as `-580-server` at the loaded driver's exact version. The driver install brings the first three; Procedure D
   adds the encode and decode libraries.
@@ -30,29 +31,35 @@ For the *why* behind these choices, see
 `secrets` packages, so a host that pulls them for the first time sets them up in this order:
 
 ```bash
-# 1. Deploy the apt guard, then remove the leftovers the check names. On the Linux server those are the empty
-#    transitional package of the retired 570 branch and the firmware of an older 580 release; removing them touches
-#    no other package.
+# 1. Link the command and the units.
+cd ~/dotfiles && scripts/stow-deploy --headless --only local
+
+# 2. Deploy the apt guard, run the check, and run the `next:` lines it prints. On the Linux server those are the
+#    three below. nvidia-utils-580-server is marked auto-installed and only the empty transitional package of the
+#    retired 570 branch depends on it, so it is marked manual before that package goes; otherwise the next autoremove
+#    takes nvidia-smi. The firmware is from an older 580 release.
 sudo ~/dotfiles/scripts/nvidia-deploy.sh
+nvidia-gpu-verify
+sudo apt-mark manual nvidia-utils-580-server
 sudo apt-get remove nvidia-utils-570-server nvidia-firmware-580-server-580.126.20
 
-# 2. Link the command and the units, then enable the timers (the Linux server only).
-cd ~/dotfiles && scripts/stow-deploy --headless --only local
+# 3. Enable the timers (the Linux server only), then expect "nvidia-gpu-verify: all checks passed".
 bash ~/dotfiles/scripts/host-jobs-enable.sh
-
-# 3. Expect "nvidia-gpu-verify: all checks passed".
 nvidia-gpu-verify
 ```
 
-The timers' units carry the Linux server's `ConditionHost`, so another host skips `host-jobs-enable.sh`, and runs the
-removal only for packages its own check names.
+The timers' units carry the Linux server's `ConditionHost`, so another host skips `host-jobs-enable.sh`, and runs only
+the `next:` lines its own check prints.
 
 It reads the branch and version from the loaded kernel module, then checks:
 
 - the five add-on packages at that version;
+- that apt autoremove keeps each add-on: one marked auto-installed needs a package other than another branch's to depend
+  on it;
 - every other installed package of a `-server` driver source, which must be of the loaded branch at that version;
 - that no package the guard refuses is installed;
-- that DKMS has built the installed `nvidia-dkms` package's module for every kernel in `/boot`;
+- that DKMS has built the installed `nvidia-dkms` package's module for every kernel in `/boot`, and that dpkg has
+  configured the package;
 - NVENC and NVDEC, through two session-free driver calls, and the Vulkan device;
 - that `/etc/apt/preferences.d` holds the repo's guard byte for byte, and that apt honours it.
 
@@ -63,6 +70,7 @@ It changes nothing and opens no encode or decode session, so it is safe while en
 PASS  kernel module 580.178.04 loaded (branch 580)
 PASS  nvidia-utils-580-server 580.178.04-0ubuntu0.24.04.1
 ...
+PASS  apt autoremove keeps every -580-server add-on, with or without other branches' packages
 PASS  9 other -580-server package(s) at 580.178.04
 PASS  no package the apt guard refuses is installed
 PASS  DKMS has built nvidia 580.178.04 for every kernel: 6.8.0-146-generic 6.8.0-151-generic
@@ -87,18 +95,25 @@ A `next:` line that starts with `sudo` is the operator's to run; an agent withou
 FAIL, 1 at least one. When no package of the loaded branch is at the loaded version, the check prints one FAIL for it
 and points at `/usr/sbin/dkms status nvidia`: either a reboot is pending, and DKMS shows the new module built for the
 running kernel, or another branch's package replaced this one (see Procedure D), and a reboot would come up with no
-module. When the guard step fails while `~/dotfiles/scripts/nvidia-deploy.sh --check` reports the guard deployed, a
-preferences file that sorts before it overrides it, and `apt-cache policy libnvidia-encode-580` shows the winning pin.
+module. A DKMS build that failed for any kernel stops the `nvidia-dkms` package's postinst, and the DKMS step then fails
+on that package and on each kernel without a build: reboot only once those pass. When the guard step fails while
+`~/dotfiles/scripts/nvidia-deploy.sh --check` reports the guard deployed, a preferences file that sorts before it
+overrides it, and `apt-cache policy libnvidia-encode-580` shows the winning pin.
 
-A package of another branch, such as the empty transitional `nvidia-utils-570-server` an old branch leaves behind, or
-a firmware package for an older driver version, fails with its `sudo apt-get remove` line; removing either touches no
-other package.
+A package of another branch, such as the empty transitional `nvidia-utils-570-server` an old branch leaves behind, or a
+firmware package for an older driver version, fails with its `sudo apt-get remove` line. When such a package is all that
+depends on an add-on apt marked auto-installed, the add-on fails too, with `sudo apt-mark manual` as its `next:` line,
+and every remove line runs that mark first, so the next autoremove keeps the add-on. Each point release of the branch
+installs its own `nvidia-firmware-580-server-<version>` and leaves the previous one installed, so after every point
+release the check fails on the old firmware until its remove line runs.
 
 On the Linux server the `nvidia-gpu-verify` user timer runs the check daily. A run with a FAIL fails the unit and sets
-its status text to the first FAIL and that FAIL's `next:` command, so the failed-units notice at session start reads,
-for one: `nvidia-gpu-verify.service (/etc/apt/preferences.d/00-nvidia-server-branch.pref is not deployed; next: sudo
-~/dotfiles/scripts/nvidia-deploy.sh)`. The unit stays failed until a run passes, the timer's next or
-`systemctl --user start nvidia-gpu-verify.service`.
+its status text to the number of FAILs, the first FAIL, and that FAIL's `next:` command; `nvidia-gpu-verify` lists them
+all. On the Linux server, with the guard not yet deployed and nothing else wrong, the failed-units notice at session
+start reads: `nvidia-gpu-verify.service (2 check(s) failed, first: /etc/apt/preferences.d/00-nvidia-server-branch.pref
+is not deployed; next: sudo ~/dotfiles/scripts/nvidia-deploy.sh)`. The unit stays failed until a run passes, the timer's
+next or `systemctl --user start nvidia-gpu-verify.service`. A run that hangs, as a probe can on a wedged GPU, fails the
+unit after 5 minutes.
 
 ---
 
@@ -194,7 +209,7 @@ sudo apt-mark manual dkms linux-headers-generic
 
 With the apt guard (`config/apt/preferences.d/00-nvidia-server-branch.pref`, deployed by
 `sudo ~/dotfiles/scripts/nvidia-deploy.sh`) as the one apt pin, that is the entire "lockdown": no unattended-upgrades
-blacklist, no systemd timers.
+blacklist and no hold. The two daily timers in the `local` package (see "The check") report drift; they change nothing.
 
 ### A.5 Cleanup orphaned packages from the prior driver branch
 
@@ -412,11 +427,12 @@ version; that is the pending reboot, and its DKMS step shows the new module buil
 procedure with the old branch as `B` and a reboot. The daily check's unit fails on the pending reboot too, until the
 reboot.
 
-`nvidia-lts-watch` is the daily systemd user timer that waits for 620 on the Linux server. Once `apt-cache policy`
-lists `nvidia-headless-620-server-open` from a `-updates` or `-security` pocket, the unit fails, and the failed-units
-notice at session start shows its status text, which names this procedure. Once the host runs 620, retire it:
-`systemctl --user disable --now nvidia-lts-watch.timer`, then a PR that removes its two units, its script, its suite,
-and its lines in `scripts/host-jobs-enable.sh` and `tests/host-scheduled-jobs.bats`.
+`nvidia-lts-watch` is the daily systemd user timer that waits for 620 on the Linux server. Once `apt-cache policy` lists
+`nvidia-headless-620-server-open` from a `-updates` or `-security` pocket, the unit fails, and the failed-units notice
+at session start shows its status text, which names this runbook's driver move as ready; `nvidia-lts-watch --help` names
+this procedure. Once the host runs 620, retire it: `systemctl --user disable --now nvidia-lts-watch.timer`, then a PR
+that removes its two units, its script, its suite, and its lines in `scripts/host-jobs-enable.sh` and
+`tests/host-scheduled-jobs.bats`.
 
 The guard serves hosts on the `-server` driver only. Moving a host to the non-server family starts with
 `sudo rm /etc/apt/preferences.d/00-nvidia-server-branch.pref`, since the guard refuses every package of that family.
@@ -444,8 +460,8 @@ The guard serves hosts on the `-server` driver only. Moving a host to the non-se
 ## What this runbook deliberately does not do
 
 - Alert outside a session. The daily `nvidia-gpu-verify` run reports through the failed-units notice when a session
-  starts, and nothing mails or pages. A kernel that DKMS cannot build for still fails `apt` loudly at install. The
-  other timer here, `nvidia-lts-watch`, watches for the 620 release, not the host's health.
+  starts, and nothing mails or pages. A kernel that DKMS cannot build for still fails `apt` loudly at install. The other
+  timer here, `nvidia-lts-watch`, watches for the 620 release, not the host's health.
 - Pin the kernel or block kernel upgrades. The point of DKMS is to make kernel upgrades safe; pinning would defeat the
   design.
 - Touch the CUDA toolkit. Driver and toolkit upgrade on independent schedules.

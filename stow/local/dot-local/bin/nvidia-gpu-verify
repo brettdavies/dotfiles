@@ -15,30 +15,35 @@
 #   2. nvidia-utils, libnvidia-compute, libnvidia-gl, libnvidia-encode, and
 #      libnvidia-decode are installed as -<branch>-server at the module's
 #      version
-#   3. every other installed package built from a -server driver source is of
+#   3. apt autoremove keeps each of those add-ons: one marked auto-installed
+#      needs a package that depends on it other than another branch's, which
+#      the next step tells the operator to remove
+#   4. every other installed package built from a -server driver source is of
 #      the loaded branch at the module's version
-#   4. no package the apt guard refuses is installed: the guard's src:
+#   5. no package the apt guard refuses is installed: the guard's src:
 #      patterns are matched against each NVIDIA package's source and name
-#   5. DKMS has built the installed nvidia-dkms package's module for every
-#      kernel in /boot, so a boot into any of them has a GPU
-#   6. NVENC: NvEncodeAPIGetMaxSupportedVersion answers, and the API version
+#   6. DKMS has built the installed nvidia-dkms package's module for every
+#      kernel in /boot, so a boot into any of them has a GPU, and dpkg has
+#      configured that package
+#   7. NVENC: NvEncodeAPIGetMaxSupportedVersion answers, and the API version
 #      it prints decides which ffmpeg builds can encode
-#   7. NVDEC: cuvidGetDecoderCaps answers for H.264, HEVC, and AV1
-#   8. Vulkan: vulkaninfo lists the NVIDIA device at the module's version
-#   9. apt guard: /etc/apt/preferences.d holds the repo's copy byte for byte
+#   8. NVDEC: cuvidGetDecoderCaps answers for H.264, HEVC, and AV1
+#   9. Vulkan: vulkaninfo lists the NVIDIA device at the module's version
+#  10. apt guard: /etc/apt/preferences.d holds the repo's copy byte for byte
 #      (scripts/nvidia-deploy.sh --check), and apt offers no candidate for the
 #      non-server encode library
 #
-# Steps 6 and 7 open no encode or decode session, so they never take one of a
-# GeForce card's capped NVENC sessions from an encode that is running. Steps 6
-# to 8 run under a 30 s timeout, because cuInit and vulkaninfo can hang on a
+# Steps 7 and 8 open no encode or decode session, so they never take one of a
+# GeForce card's capped NVENC sessions from an encode that is running. Steps 7
+# to 9 run under a 30 s timeout, because cuInit and vulkaninfo can hang on a
 # GPU wedged after an Xid error.
 #
 # Exit 0 when nothing failed, and on macOS or a Linux host with no NVIDIA
 # driver; 1 when a check failed; 2 on a usage error. Under systemd, as the
 # nvidia-gpu-verify user timer runs it, a failed run also sets the unit's
-# status text to its first FAIL and that FAIL's next: command, which the
-# failed-units notice at session start shows beside the unit's name.
+# status text to the number of FAILs, the first FAIL, and that FAIL's next:
+# command, which the failed-units notice at session start shows beside the
+# unit's name.
 #
 # Env: NVIDIA_GPU_VERIFY_PROC_VERSION  file naming the loaded module (default
 #                                      /proc/driver/nvidia/version)
@@ -50,7 +55,6 @@ set -uo pipefail
 
 PROG=nvidia-gpu-verify
 PROC_VERSION="${NVIDIA_GPU_VERIFY_PROC_VERSION:-/proc/driver/nvidia/version}"
-DEPLOY_CMD='sudo ~/dotfiles/scripts/nvidia-deploy.sh'
 # dkms status and ldconfig -p need no root, and their full paths reach them
 # from a PATH without /usr/sbin or /sbin, as an agent slot's is.
 DKMS_CMD='/usr/sbin/dkms status nvidia'
@@ -88,6 +92,7 @@ esac
 failures=()
 first_next=""
 pin_version=""
+keep_cmd=""
 
 pass() { printf 'PASS  %s\n' "$1"; }
 fail() {
@@ -107,7 +112,8 @@ finish() {
   fi
   echo "$PROG: ${#failures[@]} check(s) failed:"
   printf '  - %s\n' "${failures[@]}"
-  [ -z "${NOTIFY_SOCKET:-}" ] || systemd-notify --status="${failures[0]}; next: $first_next" || true
+  [ -z "${NOTIFY_SOCKET:-}" ] ||
+    systemd-notify --status="${#failures[@]} check(s) failed, first: ${failures[0]}; next: $first_next" || true
   exit 1
 }
 
@@ -121,6 +127,22 @@ pkg_lookup() {
 
 # The Debian version's upstream part: 580.178.04-0ubuntu0.24.04.1 -> 580.178.04
 upstream() { printf '%s\n' "${1%%-*}"; }
+
+# older A B: the dotted upstream version A is older than B (580.126.20 than
+# 580.178.04). NVIDIA versions are numeric in every part.
+older() {
+  local -a a b
+  local i
+  IFS=. read -ra a <<<"$1"
+  IFS=. read -ra b <<<"$2"
+  for ((i = 0; i < ${#a[@]} || i < ${#b[@]}; i++)); do
+    if ((10#${a[i]:-0} != 10#${b[i]:-0})); then
+      ((10#${a[i]:-0} < 10#${b[i]:-0}))
+      return
+    fi
+  done
+  return 1
+}
 
 pkg_installed() {
   pkg_lookup "$1"
@@ -259,9 +281,16 @@ verify_packages() {
   for pkg in "${missing[@]}"; do
     fail "$pkg is not installed" "$(fix_cmd "$pkg")"
   done
+  # An add-on newer than the module awaits a reboot; its install line would be
+  # a downgrade.
   for entry in "${other[@]}"; do
     pkg="${entry%% *}"
-    fail "$pkg is ${entry#* } and the loaded module is $version" "$(fix_cmd "$pkg")"
+    if older "$(upstream "${entry#* }")" "$version"; then
+      fail "$pkg is ${entry#* } and the loaded module is $version" "$(fix_cmd "$pkg")"
+    else
+      fail "$pkg is ${entry#* }, newer than the loaded module $version: a reboot is pending, or an upgrade stopped partway" \
+        "$DKMS_CMD"
+    fi
   done
   return 0
 }
@@ -287,19 +316,75 @@ is_addon() {
 # a package of another branch; removing either touches nothing else. Any other
 # package of this branch at another version means an upgrade stopped partway
 # or awaits a reboot, and DKMS shows which module the next boot loads.
+# The source package of an installed NVIDIA package, or nothing for any other.
+nv_source() {
+  local status pkg ver src
+  while read -r status pkg ver src; do
+    if [ "$status" = ii ] && [ "$pkg" = "$1" ]; then
+      printf '%s' "$src"
+      return
+    fi
+  done <<<"$NV_PKGS"
+}
+
+# apt autoremove takes an auto-installed package once no installed package
+# depends on it. On a host that changed branch, an empty transitional package
+# of the old branch (nvidia-utils-570-server) can be all that holds an add-on
+# (nvidia-utils-580-server), so the removal the next step names would take
+# nvidia-smi with it. Sets keep_cmd, which that step's removals run first.
+verify_addons_kept() {
+  local branch="$1" name pkg dep src held leftover
+  local -a addons=() orphaned=()
+  for name in "${ADDONS[@]}"; do
+    addons+=("$name-$branch-server")
+  done
+  while read -r pkg; do
+    [ -n "$pkg" ] || continue
+    held="" leftover=""
+    while read -r dep; do
+      dep="${dep#|}"
+      src="$(nv_source "$dep")"
+      if [[ $src =~ ^nvidia-graphics-drivers-([0-9]+)-server$ && ${BASH_REMATCH[1]} != "$branch" ]]; then
+        leftover+="${leftover:+, }$dep"
+      else
+        held=1
+        break
+      fi
+    done < <(apt-cache rdepends --installed "$pkg" 2>/dev/null | sed '1,2d')
+    [ -z "$held" ] || continue
+    orphaned+=("$pkg")
+    if [ -n "$leftover" ]; then
+      fail "$pkg is marked auto-installed and only $leftover, of another branch, depends on it, so removing that lets apt autoremove remove $pkg" \
+        "sudo apt-mark manual $pkg"
+    else
+      fail "$pkg is marked auto-installed and no installed package depends on it, so apt autoremove removes it" \
+        "sudo apt-mark manual $pkg"
+    fi
+  done < <(apt-mark showauto "${addons[@]}" 2>/dev/null)
+  if [ "${#orphaned[@]}" -eq 0 ]; then
+    pass "apt autoremove keeps every -$branch-server add-on, with or without other branches' packages"
+  else
+    keep_cmd="sudo apt-mark manual ${orphaned[*]} && "
+  fi
+}
+
 verify_server_set() {
   local branch="$1" version="$2" status pkg ver src count=0 before="${#failures[@]}"
   while read -r status pkg ver src; do
     [ "$status" = ii ] || continue
     [[ $src =~ ^nvidia-graphics-drivers-([0-9]+)-server$ ]] || continue
     if [ "${BASH_REMATCH[1]}" != "$branch" ]; then
-      fail "$pkg $ver is from branch ${BASH_REMATCH[1]}, and the loaded module is branch $branch" "sudo apt-get remove $pkg"
+      fail "$pkg $ver is from branch ${BASH_REMATCH[1]}, and the loaded module is branch $branch" \
+        "${keep_cmd}sudo apt-get remove $pkg"
     elif is_addon "$pkg" "$branch"; then
       continue
     elif [ "$(upstream "$ver")" = "$version" ]; then
       count=$((count + 1))
-    elif [[ $pkg == "nvidia-firmware-$branch-server-"* ]]; then
-      fail "$pkg is firmware for driver $(upstream "$ver"), and the loaded module is $version" "sudo apt-get remove $pkg"
+    # A newer firmware belongs to an upgrade awaiting a reboot, and
+    # nvidia-kernel-common depends on it, so only an older one is removed.
+    elif [[ $pkg == "nvidia-firmware-$branch-server-"* ]] && older "$(upstream "$ver")" "$version"; then
+      fail "$pkg is firmware for driver $(upstream "$ver"), and the loaded module is $version" \
+        "${keep_cmd}sudo apt-get remove $pkg"
     else
       fail "$pkg is $ver and the loaded module is $version: a reboot is pending, or an upgrade stopped partway" "$DKMS_CMD"
     fi
@@ -350,11 +435,20 @@ verify_nonserver_absent() {
 verify_dkms() {
   local status pkg ver want="" kernel out rc
   local -a kernels=() missing=()
+  # A build that fails for any kernel fails the package's postinst, which
+  # leaves it half-configured (iF): the case the per-kernel check exists for.
+  # So any unpacked nvidia-dkms package counts, and one not configured fails.
   while read -r status pkg ver _; do
-    if [ "$status" = ii ] && [[ $pkg == nvidia-dkms-* ]]; then
-      want="$(upstream "$ver")"
-      break
-    fi
+    [[ $pkg == nvidia-dkms-* && $status == [ih][iUFHWt]* ]] || continue
+    want="$(upstream "$ver")"
+    case "$status" in
+      ii | hi) ;;
+      *)
+        fail "$pkg is not fully configured (dpkg status $status): its postinst stopped, most often on a DKMS build that failed, so do not reboot until the builds below pass" \
+          "sudo dpkg --configure -a"
+        ;;
+    esac
+    break
   done <<<"$NV_PKGS"
   if [ -z "$want" ]; then
     skip "no nvidia-dkms package installed; DKMS builds not checked"
@@ -521,9 +615,13 @@ verify_linux() {
   pass "kernel module $version loaded (branch $branch)"
   REPO_DIR="$(cd "$(dirname "$(readlink -f "$0")")/../../../.." && pwd)"
   GUARD_FILE="$REPO_DIR/config/apt/preferences.d/00-nvidia-server-branch.pref"
+  # The checkout this run compares the deployed guard against, so the deploy
+  # it names clears the FAIL; ~/dotfiles on a deployed host.
+  DEPLOY_CMD="sudo ${REPO_DIR/#"$HOME"/\~}/scripts/nvidia-deploy.sh"
   NV_PKGS="$(nvidia_packages)"
 
   if verify_packages "$branch" "$version"; then
+    verify_addons_kept "$branch"
     verify_server_set "$branch" "$version"
   else
     matched=0
