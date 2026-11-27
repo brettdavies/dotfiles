@@ -499,6 +499,10 @@ flowchart TB
 - 2026-11-27 01:33 CST: `/compound-engineering:ce-code-review` round 2 started on the two round-1 P1 fixes (the
   half-configured `nvidia-dkms` package and the autoremove trap), run from a clone of the fixed head with base
   `74031bf`.
+- 2026-11-27 01:45 CST: `/compound-engineering:ce-code-review` round 2 ended (Opus, 443 s): Ready with fixes, 0 P0, 0
+  P1, 1 P2, 1 P3; verdict in a PR #541 comment. Both are fixed in `1d6cf73`: the not-configured `nvidia-dkms` FAIL now
+  runs before the package checks, so it leads the unit's status text instead of "a reboot is pending", and
+  `verify_server_set`'s comment sits above its function again.
 
 ## Appendix: Engineering Review (plan-eng-review, 2026-11-26)
 
