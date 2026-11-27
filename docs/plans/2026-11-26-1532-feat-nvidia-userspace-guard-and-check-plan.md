@@ -486,6 +486,9 @@ flowchart TB
   U4 times the live run. Ledger and tasks in the DX appendix below.
 - 2026-11-27 00:48 CST: `/compound-engineering:ce-code-review` round 1 started on PR #541 at `74031bf`.
 - 2026-11-27 00:48 CST: `/devex-review` started on PR #541 at `74031bf`.
+- 2026-11-27 00:56 CST: `/devex-review` ended (Opus, 384 s): 7/10, 1 P1, 4 P2, 3 nits; verdict in a PR #541 comment. The
+  P1 is confirmed by simulation: `apt-get -s remove --autoremove nvidia-utils-570-server` also removes
+  `nvidia-utils-580-server`, which only the 570 transitional package holds, and marking it manual first keeps it.
 
 ## Appendix: Engineering Review (plan-eng-review, 2026-11-26)
 
