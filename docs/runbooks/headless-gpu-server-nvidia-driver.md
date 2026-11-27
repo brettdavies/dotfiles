@@ -12,8 +12,9 @@ For the *why* behind these choices, see
 
 - **Driver package:** `nvidia-headless-580-server-open` (Server LTS, open kernel module, **DKMS-backed**).
 - **CUDA toolkit:** 12.8.x (driver 580 is backward-compatible).
-- **Kernel updates:** unattended-upgrades stays enabled; DKMS rebuilds the nvidia module on every kernel install and apt
-  fails loud if the build cannot complete.
+- **Kernel updates:** unattended-upgrades stays enabled, and DKMS builds the nvidia module on every kernel install. A
+  failed build fails the kernel package's postinst: dpkg leaves the package half-configured and rolls nothing back. A
+  kernel whose headers are not installed is skipped with exit 0 and gets no build. Procedure B's check catches both.
 - **Manual-marked packages** (so autoremove cannot strip them): `dkms`, `linux-headers-generic`, and any add-on that
   only another branch's package depends on (on the Linux server, `nvidia-utils-580-server`).
 - **Add-on userspace:** `nvidia-utils`, `libnvidia-compute`, `libnvidia-gl`, `libnvidia-encode`, and `libnvidia-decode`,
@@ -126,7 +127,9 @@ NVIDIA driver setup.
 ### A.1 Pre-flight
 
 ```bash
-# 1. Verify nothing holds an open handle to the GPU device nodes (must be empty).
+# 1. Verify nothing holds an open handle to the GPU device nodes (must be empty). The server does not ship lsof, and
+#    empty output means nothing until it is installed.
+sudo apt-get install -y lsof
 sudo lsof /dev/nvidia* 2>/dev/null
 
 # 2. Inventory current state.
@@ -275,8 +278,13 @@ relying on auto-detect.
 
 ## Procedure B — future kernel upgrade health check
 
-Unattended-upgrades will install future kernels automatically. DKMS will rebuild the nvidia module as part of the kernel
-install; if the build fails, apt aborts. The next time you log in:
+Unattended-upgrades installs future kernels automatically, and DKMS builds the nvidia module as part of each kernel
+install. A build that fails makes the kernel package's postinst fail: apt reports the error, which under
+unattended-upgrades reaches only its log, and dpkg leaves the package half-configured with nothing rolled back. A kernel
+whose headers are not installed is skipped with exit 0, so it has no build and no error. `nvidia-gpu-verify` fails on
+each kernel in `/boot` that has no build (`DKMS has not built nvidia <version> for kernel <kernel>`). A driver upgrade
+whose build fails leaves the `nvidia-dkms` package not fully configured, and the check reports that FAIL first, telling
+you not to reboot. The next time you log in:
 
 ```bash
 # 1. Confirm DKMS has a module for the running kernel.
@@ -367,8 +375,11 @@ nvidia-gpu-verify
 ```
 
 Naming both libraries marks both as manually installed, so a later autoremove cannot take the decode library. Running
-processes do not map the new libraries, so nothing restarts. Remove the same way: `apt-get remove -s` with the package
-names must list only those packages under `Remv`. For the why, see
+processes do not map the new libraries, so nothing restarts. Remove the same way, and simulate the autoremove that
+follows: `apt-get -s remove --autoremove <packages>` must list under `Remv` only the named packages and any unrelated
+packages that were already autoremovable (on the Linux server, `slirp4netns` and `libslirp0`). An add-on listed there is
+held only by a package being removed: mark it manual (`sudo apt-mark manual <add-on>`) and simulate again. For the why,
+see
 [`docs/solutions/configuration-fixes/nvidia-addon-userspace-packages-match-driver-branch-and-version.md`](../solutions/configuration-fixes/nvidia-addon-userspace-packages-match-driver-branch-and-version.md).
 
 ### NVENC API version and ffmpeg builds
@@ -442,8 +453,8 @@ The guard serves hosts on the `-server` driver only. Moving a host to the non-se
 
 ## Concerns that will resurface on any rerun
 
-- `lsof /dev/nvidia*` must be empty before any `modprobe` swap. Any leaked handle from a previous driver generation will
-  block the load.
+- `lsof /dev/nvidia*` must be empty before any `modprobe` swap, and empty means nothing until lsof is installed (A.1
+  installs it). Any leaked handle from a previous driver generation will block the load.
 - `NEEDRESTART_MODE=a` matters in scripted contexts; in an interactive shell it is fine to answer the prompt manually.
 - DKMS builds for **every** installed kernel on `dkms autoinstall`. `apt autoremove --purge` does NOT always drop stale
   kernels (it only removes leaves that became unreferenced naturally); kernels installed explicitly may need
