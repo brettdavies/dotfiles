@@ -1,6 +1,7 @@
 #!/usr/bin/env bats
 # The Linux server's scheduled jobs: the vault agent-workspace sync and its health check, the GitHub stars sync, the
-# daily brew and uv tool upgrades, the automatic agent slot sweep, and the agent slot tab reconcile. They run as systemd
+# daily brew and uv tool upgrades, the automatic agent slot sweep, the agent slot tab reconcile, the daily NVIDIA check,
+# and the daily watch for the 620-server NVIDIA driver. They run as systemd
 # user timers shipped in shared stow packages, so every unit carries ConditionHost=bigdaddy: stow-deploy restarts every
 # timer a package ships on each Linux deploy, and `restart` starts a timer whether or not it was enabled.
 # scripts/host-jobs-enable.sh enables them on that host and retires the crontab lines they replace. The same script
@@ -27,6 +28,8 @@ HOST_JOBS=(
   "$LOCAL_UNITS/agent-slot-reconcile"
   "$LOCAL_UNITS/skill-listing-refresh"
   "$LOCAL_UNITS/agent-slot-save"
+  "$LOCAL_UNITS/nvidia-gpu-verify"
+  "$LOCAL_UNITS/nvidia-lts-watch"
 )
 RECONCILE="$LOCAL_UNITS/agent-slot-reconcile"
 SAVE="$LOCAL_UNITS/agent-slot-save"
@@ -178,6 +181,20 @@ EOF
   for unit in github-stars github-stars-clone; do
     grep -qx 'EnvironmentFile=-%h/.config/github-stars/env' "$LOCAL_UNITS/$unit.service" || { echo "$unit.service"; return 1; }
   done
+}
+
+@test "the NVIDIA check runs daily and may set its unit's status text for the failed-units notice" {
+  local unit="$LOCAL_UNITS/nvidia-gpu-verify"
+  [ "$(_unit_key "$unit.service" Service ExecStart)" = '%h/.local/bin/nvidia-gpu-verify' ]
+  [ "$(_unit_key "$unit.service" Service NotifyAccess)" = all ]
+  [ "$(_unit_key "$unit.timer" Timer OnCalendar)" = daily ]
+}
+
+@test "the NVIDIA LTS watch runs daily and may set its unit's status text for the failed-units notice" {
+  local unit="$LOCAL_UNITS/nvidia-lts-watch"
+  [ "$(_unit_key "$unit.service" Service ExecStart)" = '%h/.local/bin/nvidia-lts-watch' ]
+  [ "$(_unit_key "$unit.service" Service NotifyAccess)" = all ]
+  [ "$(_unit_key "$unit.timer" Timer OnCalendar)" = daily ]
 }
 
 # --- the Rex server -----------------------------------------------------------

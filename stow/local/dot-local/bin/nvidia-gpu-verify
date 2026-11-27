@@ -35,7 +35,10 @@
 # GPU wedged after an Xid error.
 #
 # Exit 0 when nothing failed, and on macOS or a Linux host with no NVIDIA
-# driver; 1 when a check failed; 2 on a usage error.
+# driver; 1 when a check failed; 2 on a usage error. Under systemd, as the
+# nvidia-gpu-verify user timer runs it, a failed run also sets the unit's
+# status text to its first FAIL and that FAIL's next: command, which the
+# failed-units notice at session start shows beside the unit's name.
 #
 # Env: NVIDIA_GPU_VERIFY_PROC_VERSION  file naming the loaded module (default
 #                                      /proc/driver/nvidia/version)
@@ -83,12 +86,14 @@ case "$#:${1:-}" in
 esac
 
 failures=()
+first_next=""
 pin_version=""
 
 pass() { printf 'PASS  %s\n' "$1"; }
 fail() {
   printf 'FAIL  %s\n' "$1"
   printf '      next: %s\n' "$2"
+  [ "${#failures[@]}" -gt 0 ] || first_next="$2"
   failures+=("$1")
 }
 skip() { printf 'SKIP  %s\n' "$1"; }
@@ -102,6 +107,7 @@ finish() {
   fi
   echo "$PROG: ${#failures[@]} check(s) failed:"
   printf '  - %s\n' "${failures[@]}"
+  [ -z "${NOTIFY_SOCKET:-}" ] || systemd-notify --status="${failures[0]}; next: $first_next" || true
   exit 1
 }
 

@@ -7,7 +7,7 @@
 #
 # dpkg-query, apt-cache, vulkaninfo, python3, timeout, and dkms are stubs that
 # answer from files under $FIXTURE, so a test writes only the answer it is
-# about. The python3 stub runs the real interpreter when the test writes no
+# about, and systemd-notify logs its arguments to $FIXTURE/notify. The python3 stub runs the real interpreter when the test writes no
 # canned probe answer, and the timeout stub runs its command unless the test
 # asks it to time out. The loaded module comes from a fixture file through
 # NVIDIA_GPU_VERIFY_PROC_VERSION, the kernels from a shared /boot stand-in, and
@@ -94,7 +94,12 @@ EOF
 # dkms status nvidia, answered from $FIXTURE/dkms.
 [ ! -f "$FIXTURE/dkms" ] || cat "$FIXTURE/dkms"
 EOF
-  chmod 555 "$stubs/dpkg-query" "$stubs/apt-cache" "$stubs/vulkaninfo" "$stubs/python3" "$stubs/timeout" "$stubs/dkms"
+  cat >"$stubs/systemd-notify" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" >>"$FIXTURE/notify"
+EOF
+  chmod 555 "$stubs/dpkg-query" "$stubs/apt-cache" "$stubs/vulkaninfo" "$stubs/python3" "$stubs/timeout" "$stubs/dkms" \
+    "$stubs/systemd-notify"
 
   mkdir -p "$BATS_FILE_TMPDIR/boot" "$BATS_FILE_TMPDIR/prefs"
   : >"$BATS_FILE_TMPDIR/boot/vmlinuz-6.8.0-146-generic"
@@ -112,6 +117,7 @@ setup() {
   export NVIDIA_GPU_VERIFY_DKMS="$BATS_FILE_TMPDIR/stubs/dkms"
   export NVIDIA_DEPLOY_PREFERENCES_DIR="$BATS_FILE_TMPDIR/prefs"
   export STUB_UNAME=Linux
+  unset NOTIFY_SOCKET
   PATH="$BATS_FILE_TMPDIR/stubs:$PATH"
 }
 
@@ -323,6 +329,26 @@ assert_userspace_mismatch() {
   run "$CHECK"
   [ "$status" -eq 0 ]
   [[ "$output" == *"SKIP  no nvidia-dkms package installed; DKMS builds not checked"* ]]
+}
+
+@test "under systemd a failed run sets the unit's status to its first FAIL and that FAIL's next command" {
+  healthy 580.178.04 580.178.04-0ubuntu0.24.04.1
+  printf 'nvidia-utils-570-server 570.211.01-0ubuntu1.24.04.1 nvidia-graphics-drivers-570-server\n' >>"$FIXTURE/dpkg"
+  printf 'libnvidia-encode-580 580.196.11-1ubuntu1\n' >"$FIXTURE/apt"
+  run env NOTIFY_SOCKET="$BATS_TEST_TMPDIR/notify.sock" "$CHECK"
+  [ "$status" -eq 1 ]
+  [ "$(cat "$FIXTURE/notify")" = "--status=nvidia-utils-570-server 570.211.01-0ubuntu1.24.04.1 is from branch 570, and the loaded module is branch 580; next: sudo apt-get remove nvidia-utils-570-server" ]
+  rm -f "$FIXTURE/notify"
+  run "$CHECK"
+  [ "$status" -eq 1 ]
+  [ ! -e "$FIXTURE/notify" ]
+}
+
+@test "under systemd a passing run sets no status" {
+  healthy 580.178.04 580.178.04-0ubuntu0.24.04.1
+  run env NOTIFY_SOCKET="$BATS_TEST_TMPDIR/notify.sock" "$CHECK"
+  [ "$status" -eq 0 ]
+  [ ! -e "$FIXTURE/notify" ]
 }
 
 @test "an installed driver with no loaded module fails, pointing at DKMS" {

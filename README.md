@@ -158,7 +158,8 @@ knowing where the underlying implementation lives.
 | `gstack-config-apply`   | Converge `~/.gstack/config.yaml`, which gstack rewrites and so cannot be a stow package        |
 | `mac-open`              | Open a file from yazi on a Linux host on the Mac the session is driven from                    |
 | `mac-open-here`         | The Mac half of `mac-open`, run over SSH: open a host file in VS Code or the default app       |
-| `nvidia-gpu-verify`     | Check NVIDIA `-server` userspace, NVENC, NVDEC, Vulkan, and the apt guard against the module   |
+| `nvidia-gpu-verify`     | Check the NVIDIA `-server` packages, DKMS builds, NVENC, NVDEC, and apt guard daily, by timer  |
+| `nvidia-lts-watch`      | Fail its daily timer once apt sees the 620-server NVIDIA driver released                       |
 | `op-ssh-sign-wrapper`   | Cross-platform commit signing: 1Password agent on macOS, `ssh-keygen -Y sign` headless         |
 | `qmd-gpu-verify`        | Prove the `qmd-serve` daemon runs its model work on the GPU rather than the CPU                |
 | `qmd-ollama-unload-all` | Evict resident Ollama models, but only when VRAM is too low for `qmd embed` to load safely     |

@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# nvidia-lts-watch - fail once apt sees the 620-server NVIDIA driver in a
+# released pocket.
+#
+# The runbook's driver decision waits for NVIDIA's 620 Long Term Support
+# branch to leave noble-proposed. apt-cache policy reads the package lists
+# apt-daily refreshes, so the watch needs no root and no network. Once a
+# -updates or -security pocket carries the package, it exits 1 and, under
+# systemd, sets its unit's status text, which the failed-units notice at
+# session start shows beside the unit's name. The runbook retires the unit
+# once the host runs 620.
+#
+# Exit 0 when apt knows no such package or only an unreleased one; 1 when a
+# released pocket carries it; 2 on a usage error.
+set -uo pipefail
+
+PROG=nvidia-lts-watch
+PKG=nvidia-headless-620-server-open
+RUNBOOK=docs/runbooks/headless-gpu-server-nvidia-driver.md
+
+if [ "$#" -ne 0 ]; then
+  echo "usage: $PROG" >&2
+  exit 2
+fi
+
+policy="$(apt-cache policy "$PKG" 2>/dev/null)"
+if [ -z "$policy" ]; then
+  echo "$PROG: apt knows no $PKG"
+  exit 0
+fi
+
+# The version table lists each version five spaces in, with *** over the
+# installed one, and below it one line per pocket that publishes it, eight
+# spaces in: "<priority> <url> <pocket>/<component> <arch> Packages".
+read -r version pocket < <(printf '%s\n' "$policy" | awk '
+  $1 == "Version" && $2 == "table:" { table = 1; next }
+  !table { next }
+  { sub(/^ \*\*\*/, "    ") }
+  /^     [^ ]/ { ver = $1; next }
+  /^        [0-9]/ && $3 ~ /-(updates|security)\// { split($3, p, "/"); print ver, p[1]; exit }
+')
+
+if [ -z "${version:-}" ]; then
+  echo "$PROG: no released $PKG; apt sees only an unreleased pocket"
+  exit 0
+fi
+
+message="NVIDIA 620-server-open $version is in $pocket: the driver move in $RUNBOOK is ready"
+echo "$message"
+[ -z "${NOTIFY_SOCKET:-}" ] || systemd-notify --status="$message"
+exit 1

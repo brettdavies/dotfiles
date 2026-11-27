@@ -1,0 +1,15 @@
+[Unit]
+Description=Fail once apt sees the 620-server NVIDIA driver released
+ConditionHost=bigdaddy
+
+[Service]
+Type=oneshot
+Environment=PATH=/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin
+# The watch sets the unit's status text through systemd-notify, which is not the main process, and the failed-units
+# notice at session start shows that text beside the unit's name.
+NotifyAccess=all
+ExecStart=%h/.local/bin/nvidia-lts-watch
+Nice=19
+
+# Hardening
+NoNewPrivileges=true

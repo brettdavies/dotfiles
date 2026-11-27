@@ -146,6 +146,9 @@ without root, and `--dest DIR` is the test seam. Whether apt honours the copy is
 also checks the installed packages against the loaded module: the five add-ons and every other package of a `-server`
 driver source at its branch and version, and no installed package matching the guard's `src:` patterns, which it reads
 from the repo's guard. It checks that DKMS built the module for every kernel in `/boot`, and NVENC, NVDEC, and Vulkan.
+On the Linux server its user timer runs it daily, and a failed run sets the unit's status text to the first FAIL and
+its `next:` line, which the failed-units notice shows at session start. `nvidia-lts-watch` fails its own daily timer
+once apt sees the 620-server driver released.
 `tests/nvidia-deploy.bats` resolves the guard with real apt against a sandbox repository of stub packages;
 `tests/nvidia-gpu-verify.bats` stubs `dpkg-query`, `apt-cache`, `vulkaninfo`, `python3`, `timeout`, and `dkms`.
 Runbook: `docs/runbooks/headless-gpu-server-nvidia-driver.md`.

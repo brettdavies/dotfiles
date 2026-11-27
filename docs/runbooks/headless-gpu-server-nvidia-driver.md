@@ -26,13 +26,26 @@ For the *why* behind these choices, see
 
 ### The check
 
-`nvidia-gpu-verify` comes with the `local` stow package. A `git pull` relinks only the `claude` and `secrets` packages,
-so on a host that just pulled the command for the first time, link it first:
+`nvidia-gpu-verify` and its daily timer come with the `local` stow package. A `git pull` relinks only the `claude` and
+`secrets` packages, so a host that pulls them for the first time sets them up in this order:
 
 ```bash
+# 1. Deploy the apt guard, then remove the leftovers the check names. On the Linux server those are the empty
+#    transitional package of the retired 570 branch and the firmware of an older 580 release; removing them touches
+#    no other package.
+sudo ~/dotfiles/scripts/nvidia-deploy.sh
+sudo apt-get remove nvidia-utils-570-server nvidia-firmware-580-server-580.126.20
+
+# 2. Link the command and the units, then enable the timers (the Linux server only).
 cd ~/dotfiles && scripts/stow-deploy --headless --only local
+bash ~/dotfiles/scripts/host-jobs-enable.sh
+
+# 3. Expect "nvidia-gpu-verify: all checks passed".
 nvidia-gpu-verify
 ```
+
+The timers' units carry the Linux server's `ConditionHost`, so another host skips `host-jobs-enable.sh`, and runs the
+removal only for packages its own check names.
 
 It reads the branch and version from the loaded kernel module, then checks:
 
@@ -80,6 +93,12 @@ preferences file that sorts before it overrides it, and `apt-cache policy libnvi
 A package of another branch, such as the empty transitional `nvidia-utils-570-server` an old branch leaves behind, or
 a firmware package for an older driver version, fails with its `sudo apt-get remove` line; removing either touches no
 other package.
+
+On the Linux server the `nvidia-gpu-verify` user timer runs the check daily. A run with a FAIL fails the unit and sets
+its status text to the first FAIL and that FAIL's `next:` command, so the failed-units notice at session start reads,
+for one: `nvidia-gpu-verify.service (/etc/apt/preferences.d/00-nvidia-server-branch.pref is not deployed; next: sudo
+~/dotfiles/scripts/nvidia-deploy.sh)`. The unit stays failed until a run passes, the timer's next or
+`systemctl --user start nvidia-gpu-verify.service`.
 
 ---
 
@@ -365,7 +384,7 @@ Name every add-on with the new branch. Naming only the headless metapackage remo
 `nvidia-utils-<old>-server` with nothing replacing them, which leaves Vulkan on `llvmpipe` and removes `nvidia-smi`.
 
 ```bash
-# 1. The candidate must come from noble-updates or noble-security.
+# 1. The candidate must come from noble-updates or noble-security; nvidia-lts-watch fails the day 620's does.
 B=620
 apt-cache policy "nvidia-headless-$B-server-open"
 
@@ -390,7 +409,14 @@ nvidia-gpu-verify
 
 Between step 3 and the reboot, `nvidia-gpu-verify` reports that no package of the loaded branch is at the loaded
 version; that is the pending reboot, and its DKMS step shows the new module built for every kernel. Rollback is this
-procedure with the old branch as `B` and a reboot.
+procedure with the old branch as `B` and a reboot. The daily check's unit fails on the pending reboot too, until the
+reboot.
+
+`nvidia-lts-watch` is the daily systemd user timer that waits for 620 on the Linux server. Once `apt-cache policy`
+lists `nvidia-headless-620-server-open` from a `-updates` or `-security` pocket, the unit fails, and the failed-units
+notice at session start shows its status text, which names this procedure. Once the host runs 620, retire it:
+`systemctl --user disable --now nvidia-lts-watch.timer`, then a PR that removes its two units, its script, its suite,
+and its lines in `scripts/host-jobs-enable.sh` and `tests/host-scheduled-jobs.bats`.
 
 The guard serves hosts on the `-server` driver only. Moving a host to the non-server family starts with
 `sudo rm /etc/apt/preferences.d/00-nvidia-server-branch.pref`, since the guard refuses every package of that family.
@@ -417,9 +443,9 @@ The guard serves hosts on the `-server` driver only. Moving a host to the non-se
 
 ## What this runbook deliberately does not do
 
-- Install or configure a probe/alert/timer. Failure mode is "apt aborts on kernel install" — visible the next time the
-  operator runs `apt` or logs in. `nvidia-gpu-verify` is a command the operator runs at Procedures B, D, and E, not a
-  timer. The carrying cost of a probe was not worth the value for this user's workflow.
+- Alert outside a session. The daily `nvidia-gpu-verify` run reports through the failed-units notice when a session
+  starts, and nothing mails or pages. A kernel that DKMS cannot build for still fails `apt` loudly at install. The
+  other timer here, `nvidia-lts-watch`, watches for the 620 release, not the host's health.
 - Pin the kernel or block kernel upgrades. The point of DKMS is to make kernel upgrades safe; pinning would defeat the
   design.
 - Touch the CUDA toolkit. Driver and toolkit upgrade on independent schedules.
