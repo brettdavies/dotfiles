@@ -767,6 +767,34 @@ SKILL_SETS_DIR=$BATS_TEST_DIRNAME/../config/agent-slot/skill-sets
   jaq -e '.scope.touches == ["src/**", "tests/*.bats"]' "$AGENT_SLOT_ROOT/repoa/1/.git/agent-slot.json"
 }
 
+@test "a Touches: or Adds: value wrapped onto indented lines is recorded whole" {
+  {
+    printf '%s\n' 'Scope: x.' 'Limits: none.' 'Reviews: none.' 'Reports to: skills-prime.' \
+      '- **Touches:** src/a/**, src/b/**,' '  tests/*.bats,' '  README.md' \
+      '- **Touches:**' '  src/long/**,' '  docs/**' \
+      '1. Touches: scripts/**,' '   bin/**' \
+      '- Adds: one flag, --dry-run;'
+    printf '%s' '  a reason code.'
+  } >"$T/brief.md"
+  launch repoa --request-id r-wrapped --prompt-file "$T/brief.md"
+  [ "$status" -eq 0 ]
+  jaq -e '.scope == {touches: ["src/a/**", "src/b/**", "tests/*.bats", "README.md", "src/long/**", "docs/**",
+    "scripts/**", "bin/**"], adds: "one flag, --dry-run; a reason code."}' "$AGENT_SLOT_ROOT/repoa/1/.git/agent-slot.json"
+}
+
+@test "a blank line, a list item, another label, or an unindented line ends a wrapped brief value" {
+  printf '%s\n' 'Scope: x.' 'Limits: none.' 'Reviews: none.' 'Reports to: skills-prime.' \
+    '- Touches: a/**,' '  b/**' '' '  Text after a blank line.' \
+    '- Touches: c/**,' '  d/**' '  - A nested list item.' \
+    '- Touches: e/**,' '  f/**' '  2) A numbered item.' '  Its second line.' \
+    '- Touches: g/**,' '  h/**' 'An unindented line,' '  and one indented under it.' \
+    '- Touches: i/**,' '  j/**' '  Adds: one flag,' '  --dry-run' >"$T/brief.md"
+  launch repoa --request-id r-ends --prompt-file "$T/brief.md"
+  [ "$status" -eq 0 ]
+  jaq -e '.scope == {touches: ["a/**", "b/**", "c/**", "d/**", "e/**", "f/**", "g/**", "h/**", "i/**", "j/**"],
+    adds: "one flag, --dry-run"}' "$AGENT_SLOT_ROOT/repoa/1/.git/agent-slot.json"
+}
+
 @test "a launch with no brief records no scope" {
   launch repoa --request-id r-noscope
   [ "$status" -eq 0 ]

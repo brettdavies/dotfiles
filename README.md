@@ -354,12 +354,14 @@ Adds: one flag, --dry-run; the reason code scope-grant-from-slot
 
 A glob is a git pathspec relative to the repo root: `*` crosses `/`, so `tests/*.bats` also matches `tests/lib/x.bats`;
 a directory name matches everything under it; a comma always separates two globs, so a brace list does not work. A
-second `Touches:` line adds to the first. `launch` and `reopen` refuse a glob git rejects, such as an absolute path, or
-one with a space, semicolon, brace, or quote, with `brief-incomplete` naming it and the line as parsed, and the hook
-denies a push whose recorded glob git rejects instead of leaving it unguarded. A slot's base is the repo's base branch,
-so a slot stacked on another PR's branch sees that PR's paths as its own changes: its `Touches:` lists them, or the
-operator grants them. The hook is a guard, not a trust boundary: it recognises a `git push` by its text, so a wrapper it
-does not list, or a script that pushes, runs unjudged.
+second `Touches:` line adds to the first. A value of any of the six labels runs on through the indented lines below it,
+as a wrapped list item's does, up to a blank line, a list item, another of the six labels, or an unindented line.
+`launch` and `reopen` refuse a glob git rejects, such as an absolute path, or one with a space, semicolon, brace, or
+quote, with `brief-incomplete` naming it and the line as parsed, and the hook denies a push whose recorded glob git
+rejects instead of leaving it unguarded. A slot's base is the repo's base branch, so a slot stacked on another PR's
+branch sees that PR's paths as its own changes: its `Touches:` lists them, or the operator grants them. The hook is a
+guard, not a trust boundary: it recognises a `git push` by its text, so a wrapper it does not list, or a script that
+pushes, runs unjudged.
 
 The operator lets a slot's PR change one more path with `agent-slot grant-scope <repo>/<N> <pathspec>`, which appends a
 `scope-grant` event for the slot, and the hook then lets the paths that pathspec matches through. The verb lists to
