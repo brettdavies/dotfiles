@@ -134,18 +134,30 @@ Adds: the public surface it may add, or none" \
     --value "${missing[*]}" --command "agent-slot launch --help"
 }
 
-# Usage: launch_brief_value <label> <file>; prints the text after each line `<label>:` that has any, joined with ", ",
-# with the emphasis marks that close the label dropped and surrounding space trimmed.
+# Usage: launch_brief_value <label> <file>; prints the value of each `<label>:` line that has one, joined with ", ". A
+# value is the text after the colon, past the emphasis marks that close the label, and the text of each indented line
+# below it, joined with one space, up to a blank line, a list item, another label, or an unindented line.
 launch_brief_value() {
-  local line value all='' re="${LAUNCH_BRIEF_LABEL_PREFIX}$1[*_]*:([*_]{1,2}([[:space:]]+|\$))?[[:space:]]*(.*)\$"
-  while IFS= read -r line; do
-    value=
-    shopt -s nocasematch
-    [[ $line =~ $re ]] && value=${BASH_REMATCH[4]}
-    shopt -u nocasematch
-    value=${value%"${value##*[![:space:]]}"}
-    [[ -z $value ]] || all+="${all:+, }$value"
-  done < <(grep -Ei "${LAUNCH_BRIEF_LABEL_PREFIX}$1[*_]*:" "$2" || true)
+  local line text sep all='' open=0 re="${LAUNCH_BRIEF_LABEL_PREFIX}$1[*_]*:([*_]{1,2}([[:space:]]+|\$))?[[:space:]]*(.*)\$"
+  local bullet='^[[:space:]]*([-*+]|[0-9]+[.)])([[:space:]]|$)' indented='^[[:space:]]+([^[:space:]].*)$' labels other
+  printf -v labels '%s|' "${LAUNCH_BRIEF_LABELS[@]}"
+  other="${LAUNCH_BRIEF_LABEL_PREFIX}(${labels%|})[*_]*:"
+  shopt -s nocasematch
+  while IFS= read -r line || [[ -n $line ]]; do
+    if [[ $line =~ $re ]]; then
+      open=1 sep=', ' text=${BASH_REMATCH[4]}
+    elif ((open)) && ! [[ $line =~ $bullet || $line =~ $other ]] && [[ $line =~ $indented ]]; then
+      text=${BASH_REMATCH[1]}
+    else
+      open=0
+      continue
+    fi
+    text=${text%"${text##*[![:space:]]}"}
+    [[ -n $text ]] || continue
+    all+="${all:+$sep}$text"
+    sep=' '
+  done <"$2"
+  shopt -u nocasematch
   printf '%s' "$all"
 }
 
