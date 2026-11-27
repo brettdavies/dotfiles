@@ -24,6 +24,11 @@ NUMBERS="$REX_DIR/tab-numbers.lua"
   [ "$status" -eq 1 ]
 }
 
+@test "init.lua turns off every program resume rule Rex ships, only on builds that have rex.set" {
+  grep -qx 'if rex.set then rex.set("resume.defaults", false) end' "$INIT"
+  [ "$(grep -v '^ *--' "$INIT" | grep -c 'rex\.set')" -eq 1 ]
+}
+
 @test "the start-up step is named once, in the Linux-only module, started detached by the helper's path" {
   [ "$(cat "$INIT" "$SLOTS" "$STARTUP" | grep -c -- '--at-start')" -eq 1 ]
   grep -qF 'rex.exec.start({ os.getenv("HOME") .. "/.local/bin/agent-slot-rex", "restore", "--at-start" }, { detach = true })' \
