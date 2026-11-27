@@ -1,6 +1,10 @@
 require("layout")
 require("agent-slots")
 
+-- Rex resumes no program after a server restart, Claude Code included: each pane comes back as a shell in its folder.
+-- Rex builds without program resume have no rex.set, and calling it there would stop init.lua with an error.
+if rex.set then rex.set("resume.defaults", false) end
+
 -- The Linux server, which hosts the slots, deploys slot-startup.lua: its start-up step restores the operator's own tabs
 -- with rexurrect before it gives every live slot its tab, since a slot tab opened first would make rexurrect restore a
 -- second copy of that repo's session. Elsewhere rexurrect restores on its own.
