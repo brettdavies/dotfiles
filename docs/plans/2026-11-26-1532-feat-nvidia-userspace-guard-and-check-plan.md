@@ -484,6 +484,8 @@ flowchart TB
   needs no root; a probe with no answer is reported on one line; usage says the check is read-only and who runs `sudo`
   lines; the runbook gains the restow step, real output, and the overridden-guard diagnosis; AGENTS.md names the check;
   U4 times the live run. Ledger and tasks in the DX appendix below.
+- 2026-11-27 00:48 CST: `/compound-engineering:ce-code-review` round 1 started on PR #541 at `74031bf`.
+- 2026-11-27 00:48 CST: `/devex-review` started on PR #541 at `74031bf`.
 
 ## Appendix: Engineering Review (plan-eng-review, 2026-11-26)
 
