@@ -95,10 +95,11 @@ A `next:` line that starts with `sudo` is the operator's to run; an agent withou
 FAIL, 1 at least one. When no package of the loaded branch is at the loaded version, the check prints one FAIL for it
 and points at `/usr/sbin/dkms status nvidia`: either a reboot is pending, and DKMS shows the new module built for the
 running kernel, or another branch's package replaced this one (see Procedure D), and a reboot would come up with no
-module. A DKMS build that failed for any kernel stops the `nvidia-dkms` package's postinst, and the DKMS step then fails
-on that package and on each kernel without a build: reboot only once those pass. When the guard step fails while
-`~/dotfiles/scripts/nvidia-deploy.sh --check` reports the guard deployed, a preferences file that sorts before it
-overrides it, and `apt-cache policy libnvidia-encode-580` shows the winning pin.
+module. A DKMS build that failed for any kernel stops the `nvidia-dkms` package's postinst. The check then fails first
+on that package, so the status text says not to reboot, and the DKMS step fails on each kernel without a build: reboot
+only once those pass. When the guard step fails while `~/dotfiles/scripts/nvidia-deploy.sh --check` reports the guard
+deployed, a preferences file that sorts before it overrides it, and `apt-cache policy libnvidia-encode-580` shows the
+winning pin.
 
 A package of another branch, such as the empty transitional `nvidia-utils-570-server` an old branch leaves behind, or a
 firmware package for an older driver version, fails with its `sudo apt-get remove` line. When such a package is all that

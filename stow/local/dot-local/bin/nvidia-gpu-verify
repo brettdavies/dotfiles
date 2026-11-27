@@ -11,7 +11,9 @@
 #
 # Linux checks (each prints PASS, FAIL, or SKIP; a FAIL is followed by a
 # `next:` command):
-#   1. the kernel module is loaded
+#   1. the kernel module is loaded, and dpkg has configured the installed
+#      nvidia-dkms package; a DKMS build that fails leaves it half-configured,
+#      and this FAIL, which says not to reboot, comes first
 #   2. nvidia-utils, libnvidia-compute, libnvidia-gl, libnvidia-encode, and
 #      libnvidia-decode are installed as -<branch>-server at the module's
 #      version
@@ -23,8 +25,7 @@
 #   5. no package the apt guard refuses is installed: the guard's src:
 #      patterns are matched against each NVIDIA package's source and name
 #   6. DKMS has built the installed nvidia-dkms package's module for every
-#      kernel in /boot, so a boot into any of them has a GPU, and dpkg has
-#      configured that package
+#      kernel in /boot, so a boot into any of them has a GPU
 #   7. NVENC: NvEncodeAPIGetMaxSupportedVersion answers, and the API version
 #      it prints decides which ffmpeg builds can encode
 #   8. NVDEC: cuvidGetDecoderCaps answers for H.264, HEVC, and AV1
@@ -93,6 +94,7 @@ failures=()
 first_next=""
 pin_version=""
 keep_cmd=""
+dkms_want=""
 
 pass() { printf 'PASS  %s\n' "$1"; }
 fail() {
@@ -310,12 +312,6 @@ is_addon() {
   return 1
 }
 
-# Every installed package of a -server driver source beyond the five add-ons
-# belongs to the loaded branch at the loaded version. A firmware package
-# carries its driver version in its name, so an older one is a leftover, as is
-# a package of another branch; removing either touches nothing else. Any other
-# package of this branch at another version means an upgrade stopped partway
-# or awaits a reboot, and DKMS shows which module the next boot loads.
 # The source package of an installed NVIDIA package, or nothing for any other.
 nv_source() {
   local status pkg ver src
@@ -368,6 +364,13 @@ verify_addons_kept() {
   fi
 }
 
+# Every installed package of a -server driver source beyond the five add-ons
+# belongs to the loaded branch at the loaded version. A firmware package
+# carries its driver version in its name, so an older one is a leftover, as is
+# a package of another branch. Removing either first marks manual any add-on
+# that verify_addons_kept found only such a package holds. Any other package
+# of this branch at another version means an upgrade stopped partway or awaits
+# a reboot, and DKMS shows which module the next boot loads.
 verify_server_set() {
   local branch="$1" version="$2" status pkg ver src count=0 before="${#failures[@]}"
   while read -r status pkg ver src; do
@@ -432,24 +435,31 @@ verify_nonserver_absent() {
 
 # The installed nvidia-dkms package's module is the one the next boot loads,
 # so DKMS must have built it for every kernel a boot can pick.
-verify_dkms() {
-  local status pkg ver want="" kernel out rc
-  local -a kernels=() missing=()
-  # A build that fails for any kernel fails the package's postinst, which
-  # leaves it half-configured (iF): the case the per-kernel check exists for.
-  # So any unpacked nvidia-dkms package counts, and one not configured fails.
+# A DKMS build that fails for any kernel fails the nvidia-dkms package's
+# postinst, which leaves it half-configured (iF): the case the per-kernel check
+# exists for. So any unpacked nvidia-dkms package counts, and one not configured
+# fails. It runs before the package checks, so that FAIL, the one that says not
+# to reboot, is the first FAIL and leads the unit's status text. Sets dkms_want
+# to the package's driver version.
+verify_dkms_configured() {
+  local status pkg ver
   while read -r status pkg ver _; do
     [[ $pkg == nvidia-dkms-* && $status == [ih][iUFHWt]* ]] || continue
-    want="$(upstream "$ver")"
+    dkms_want="$(upstream "$ver")"
     case "$status" in
       ii | hi) ;;
       *)
-        fail "$pkg is not fully configured (dpkg status $status): its postinst stopped, most often on a DKMS build that failed, so do not reboot until the builds below pass" \
+        fail "$pkg is not fully configured (dpkg status $status): its postinst stopped, most often on a DKMS build that failed, so do not reboot until the DKMS builds pass" \
           "sudo dpkg --configure -a"
         ;;
     esac
-    break
+    return
   done <<<"$NV_PKGS"
+}
+
+verify_dkms() {
+  local want="$dkms_want" kernel out rc
+  local -a kernels=() missing=()
   if [ -z "$want" ]; then
     skip "no nvidia-dkms package installed; DKMS builds not checked"
     return
@@ -620,6 +630,7 @@ verify_linux() {
   DEPLOY_CMD="sudo ${REPO_DIR/#"$HOME"/\~}/scripts/nvidia-deploy.sh"
   NV_PKGS="$(nvidia_packages)"
 
+  verify_dkms_configured
   if verify_packages "$branch" "$version"; then
     verify_addons_kept "$branch"
     verify_server_set "$branch" "$version"

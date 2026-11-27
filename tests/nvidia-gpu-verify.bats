@@ -325,13 +325,15 @@ assert_userspace_mismatch() {
   [[ "$output" != *"apt-get remove"* ]]
 }
 
-@test "a half-configured nvidia-dkms package fails, and DKMS is still checked for every kernel" {
+@test "a half-configured nvidia-dkms package fails first, so the status text says not to reboot, and DKMS is still checked for every kernel" {
   healthy 580.178.04 580.196.07-0ubuntu0.24.04.1
   sed -i.bak 's/^nvidia-dkms-/iF nvidia-dkms-/' "$FIXTURE/dpkg"
   dkms_built 580.196.07 "${KERNELS[0]}"
-  run "$CHECK"
+  run env NOTIFY_SOCKET="$BATS_TEST_TMPDIR/notify.sock" "$CHECK"
   [ "$status" -eq 1 ]
-  [[ "$output" == *"FAIL  nvidia-dkms-580-server-open is not fully configured (dpkg status iF): its postinst stopped, most often on a DKMS build that failed, so do not reboot until the builds below pass"$'\n'"      next: sudo dpkg --configure -a"* ]]
+  local dkms_fail="nvidia-dkms-580-server-open is not fully configured (dpkg status iF): its postinst stopped, most often on a DKMS build that failed, so do not reboot until the DKMS builds pass"
+  [[ "$output" == *"FAIL  $dkms_fail"$'\n'"      next: sudo dpkg --configure -a"* ]]
+  [[ "$(cat "$FIXTURE/notify")" == "--status="*" check(s) failed, first: $dkms_fail; next: sudo dpkg --configure -a" ]]
   [[ "$output" == *"FAIL  DKMS has not built nvidia 580.196.07 for kernel ${KERNELS[1]}, so a boot into it comes up with no GPU"* ]]
   [[ "$output" != *"SKIP  no nvidia-dkms package installed"* ]]
 }
