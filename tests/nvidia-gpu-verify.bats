@@ -238,9 +238,9 @@ assert_userspace_mismatch() {
   run "$CHECK"
   [ "$status" -eq 1 ]
   [[ "$output" == *"FAIL  NVENC does not answer: nvenc load-failed libnvidia-encode.so.1"* ]]
-  [[ "$output" == *"next: ldconfig -p | grep libnvidia-encode"* ]]
+  [[ "$output" == *"next: /sbin/ldconfig -p | grep libnvidia-encode"* ]]
   [[ "$output" == *"FAIL  NVDEC does not answer: nvdec load-failed libnvcuvid.so.1"* ]]
-  [[ "$output" == *"next: ldconfig -p | grep libnvcuvid"* ]]
+  [[ "$output" == *"next: /sbin/ldconfig -p | grep libnvcuvid"* ]]
 }
 
 @test "a probe that dies with a traceback fails on one line per engine" {
@@ -278,7 +278,8 @@ assert_userspace_mismatch() {
 
 @test "the real probe reports the loader's reason on a host without the NVIDIA libraries" {
   [ -n "$REAL_PYTHON3" ] || skip "python3 not installed"
-  ! ldconfig -p 2>/dev/null | grep -q 'libnvidia-encode\.so\.1' || skip "this host has libnvidia-encode.so.1"
+  ! "$REAL_PYTHON3" -I -c 'import ctypes; ctypes.CDLL("libnvidia-encode.so.1")' 2>/dev/null ||
+    skip "libnvidia-encode.so.1 loads on this host"
   healthy 580.178.04 580.178.04-0ubuntu0.24.04.1
   rm -f "$FIXTURE/probe"
   run "$CHECK"

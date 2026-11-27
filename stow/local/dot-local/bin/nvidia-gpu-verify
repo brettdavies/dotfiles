@@ -37,8 +37,8 @@ set -uo pipefail
 PROG=nvidia-gpu-verify
 PROC_VERSION="${NVIDIA_GPU_VERIFY_PROC_VERSION:-/proc/driver/nvidia/version}"
 DEPLOY_CMD='sudo ~/dotfiles/scripts/nvidia-deploy.sh'
-# dkms status needs no root, and the full path reaches it from a PATH without
-# /usr/sbin, as an agent slot's is.
+# dkms status and ldconfig -p need no root, and their full paths reach them
+# from a PATH without /usr/sbin or /sbin, as an agent slot's is.
 DKMS_CMD='/usr/sbin/dkms status nvidia'
 TIMEOUT_S=30
 ADDONS=(nvidia-utils libnvidia-compute libnvidia-gl libnvidia-encode libnvidia-decode)
@@ -284,7 +284,7 @@ verify_probes() {
       pass "NVENC answers: API $api; ffmpeg built against nv-codec-headers $api or older can encode"
       ;;
     *)
-      lib_hint="ldconfig -p | grep libnvidia-encode"
+      lib_hint="/sbin/ldconfig -p | grep libnvidia-encode"
       pkg_installed "libnvidia-encode-$branch-server" ||
         lib_hint="$(fix_cmd "libnvidia-encode-$branch-server")"
       fail "NVENC does not answer: $(probe_failure "$nvenc_line" "$out")" "$lib_hint"
@@ -299,7 +299,7 @@ verify_probes() {
       fail "NVDEC does not answer: $nvdec_line" "nvidia-smi"
       ;;
     *)
-      lib_hint="ldconfig -p | grep libnvcuvid"
+      lib_hint="/sbin/ldconfig -p | grep libnvcuvid"
       pkg_installed "libnvidia-decode-$branch-server" ||
         lib_hint="$(fix_cmd "libnvidia-decode-$branch-server")"
       fail "NVDEC does not answer: $(probe_failure "$nvdec_line" "$out")" "$lib_hint"
