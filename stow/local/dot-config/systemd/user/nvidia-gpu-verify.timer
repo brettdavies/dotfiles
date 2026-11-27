@@ -1,0 +1,11 @@
+[Unit]
+Description=Check the NVIDIA driver's userspace, DKMS builds, and apt guard daily
+ConditionHost=bigdaddy
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

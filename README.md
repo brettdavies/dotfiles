@@ -44,6 +44,7 @@ dotfiles/
 │   ├── shell/             Shell fragments auto-sourced by .profile
 │   ├── git/               Per-platform git config templates
 │   ├── qmd/               Per-platform qmd collections templates
+│   ├── apt/preferences.d/ apt pins copied to /etc/apt/preferences.d: the NVIDIA -server guard (via nvidia-deploy.sh)
 │   ├── apparmor.d/        System-level AppArmor profiles (deployed via apparmor-deploy.sh)
 │   ├── launchd/           macOS launchd user PATH for GUI apps and LaunchAgents (via launchd-user-path.sh)
 │   ├── playwright/        The system browser set's pin: versions, revisions, aliases, archive hashes (via playwright-browsers-deploy.sh)
@@ -57,6 +58,7 @@ dotfiles/
 │   ├── apparmor-deploy.sh System-level AppArmor profile deploy + boot unit (Playwright/Chromium)
 │   ├── sshd-locale-deploy.sh  Strip LANG/LC_* from sshd AcceptEnv so sessions use the server locale
 │   ├── sysctl-deploy.sh   Copy config/sysctl.d into /etc/sysctl.d, apply, and read each key back (--check: read only)
+│   ├── nvidia-deploy.sh   Copy config/apt/preferences.d into /etc/apt/preferences.d (--check: read only)
 │   ├── playwright-browsers-deploy.sh  The system browser set into the shared cache, from config/playwright/browsers.pin (curl + unzip; --check: read only)
 │   ├── playwright-deps-deploy.sh  Playwright browser launch provisioning (the set, plus apparmor and opt-in browser deps on Linux)
 │   ├── *-enable.sh        Service enablers (qmd-serve, qmd-launchd, host-jobs)
@@ -156,6 +158,8 @@ knowing where the underlying implementation lives.
 | `gstack-config-apply`   | Converge `~/.gstack/config.yaml`, which gstack rewrites and so cannot be a stow package        |
 | `mac-open`              | Open a file from yazi on a Linux host on the Mac the session is driven from                    |
 | `mac-open-here`         | The Mac half of `mac-open`, run over SSH: open a host file in VS Code or the default app       |
+| `nvidia-gpu-verify`     | Check the NVIDIA `-server` packages, DKMS builds, NVENC, NVDEC, and apt guard daily, by timer  |
+| `nvidia-lts-watch`      | Fail its daily timer once apt sees the 620-server NVIDIA driver released                       |
 | `op-ssh-sign-wrapper`   | Cross-platform commit signing: 1Password agent on macOS, `ssh-keygen -Y sign` headless         |
 | `qmd-gpu-verify`        | Prove the `qmd-serve` daemon runs its model work on the GPU rather than the CPU                |
 | `qmd-ollama-unload-all` | Evict resident Ollama models, but only when VRAM is too low for `qmd embed` to load safely     |

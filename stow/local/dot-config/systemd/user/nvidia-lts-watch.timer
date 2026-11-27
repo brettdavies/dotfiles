@@ -1,0 +1,11 @@
+[Unit]
+Description=Check daily whether the 620-server NVIDIA driver is released
+ConditionHost=bigdaddy
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

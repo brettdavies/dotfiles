@@ -89,8 +89,10 @@ Considered and not built:
 
 - **A JSON output mode for the check.** The brief adds one check and no output mode, and `qmd-gpu-verify`, its
   precedent, is text-only with stable line prefixes. A caller that branches on fields would change this call.
-- **A timer, alert, or apt hook that runs the check.** The runbook rejects probes and timers. The check runs at
-  Procedure B, D, and E, and after every deploy. Evidence of a silent failure lasting days would change this call.
+- **An alert outside a session, or an apt hook, that runs the check.** The check runs at Procedure B, D, and E, after
+  every deploy, and daily from a systemd user timer on the Linux server, which the operator chose over a live bats test;
+  a second daily timer, `nvidia-lts-watch`, waits for 620. Both report through the failed-units notice at session start.
+  Evidence of a failure going unseen between sessions would change this call.
 - **An encode or decode session in the probes.** It would prove the encoder end to end. It also consumes a GeForce NVENC
   session while long encodes run, and the session-free calls plus a measured ffmpeg run on the live box (U5 docs)
   already show the libraries work. A probe passing while real encodes fail would change this call.
@@ -414,9 +416,10 @@ flowchart TB
      since the guard refuses every package of that family.
   4. **Procedure B:** gains the check.
   5. **A.4's closing lockdown sentence:** names the apt guard (`config/apt/preferences.d/00-nvidia-server-branch.pref`,
-     deployed by `scripts/nvidia-deploy.sh`) as the one apt pin, and keeps "no unattended-upgrades blacklist, no systemd
-     timers", since the GPU host plan's U2 owns the blacklist.
-  6. **"What this runbook deliberately does not do":** the check is a command, still no timer.
+     deployed by `scripts/nvidia-deploy.sh`) as the one apt pin, and keeps "no unattended-upgrades blacklist and no
+     hold", since the GPU host plan's U2 owns the blacklist; it says the two daily timers report drift and change
+     nothing.
+  6. **"What this runbook deliberately does not do":** names what the timers do not do: alert outside a session.
   7. Every new section is written to the repo's present-tense, no-history rule.
 - **Test expectation:** none -- prose. The release-docs and markdown gates in `pre-push` check it.
 - **Verification:** every command in the runbook matches a simulation in the report or a script in this PR.
@@ -484,6 +487,22 @@ flowchart TB
   needs no root; a probe with no answer is reported on one line; usage says the check is read-only and who runs `sudo`
   lines; the runbook gains the restow step, real output, and the overridden-guard diagnosis; AGENTS.md names the check;
   U4 times the live run. Ledger and tasks in the DX appendix below.
+- 2026-11-27 00:48 CST: `/compound-engineering:ce-code-review` round 1 started on PR #541 at `74031bf`.
+- 2026-11-27 00:48 CST: `/devex-review` started on PR #541 at `74031bf`.
+- 2026-11-27 00:56 CST: `/devex-review` ended (Opus, 384 s): 7/10, 1 P1, 4 P2, 3 nits; verdict in a PR #541 comment. The
+  P1 is confirmed by simulation: `apt-get -s remove --autoremove nvidia-utils-570-server` also removes
+  `nvidia-utils-580-server`, which only the 570 transitional package holds, and marking it manual first keeps it.
+- 2026-11-27 01:20 CST: `/compound-engineering:ce-code-review` round 1 ended (Opus, full depth, 1842 s): Ready with
+  fixes, 1 P1, 2 P2, 3 P3, all six confirmed by its validator; verdict in a PR #541 comment. The P1: a half-configured
+  `nvidia-dkms` package, which a failed DKMS build in its postinst leaves, makes the DKMS step skip while the first FAIL
+  reads as a pending reboot.
+- 2026-11-27 01:33 CST: `/compound-engineering:ce-code-review` round 2 started on the two round-1 P1 fixes (the
+  half-configured `nvidia-dkms` package and the autoremove trap), run from a clone of the fixed head with base
+  `74031bf`.
+- 2026-11-27 01:45 CST: `/compound-engineering:ce-code-review` round 2 ended (Opus, 443 s): Ready with fixes, 0 P0, 0
+  P1, 1 P2, 1 P3; verdict in a PR #541 comment. Both are fixed in `1d6cf73`: the not-configured `nvidia-dkms` FAIL now
+  runs before the package checks, so it leads the unit's status text instead of "a reboot is pending", and
+  `verify_server_set`'s comment sits above its function again.
 
 ## Appendix: Engineering Review (plan-eng-review, 2026-11-26)
 
@@ -669,7 +688,7 @@ Disabled by configuration (`codex_reviews: disabled`); no outside reviewer ran, 
 - A branch lock in apt preferences: it would make Procedure E edit the guard first; the GPU host plan's U2 owns upgrade
   holds (E-D8).
 - A deploy pre-flight that refuses a host running the non-server driver (E-D4 chose the docs).
-- JSON output, a timer, and session-opening probes, as the plan's Scope Boundaries already state.
+- JSON output and session-opening probes, as the plan's Scope Boundaries already state.
 
 ### What already exists
 

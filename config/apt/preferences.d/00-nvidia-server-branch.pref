@@ -1,0 +1,29 @@
+# This host runs Ubuntu's -server NVIDIA driver. The same driver's non-server
+# packages conflict with it, and installing one removes the -server userspace.
+# Their plain names are easy to reach by accident: libnvidia-encode-580 is the
+# non-server build, and NVIDIA's CUDA repository, pinned at 600 by
+# cuda-repository-pin-600, makes its own build of each one the default
+# candidate. That repository also ships unversioned names (libnvidia-encode)
+# and the nvidia-open and cuda-drivers metapackages, which pull in the same
+# conflicting set.
+#
+# Priority -1 makes apt refuse every version from every origin. Every binary of
+# the non-server driver, Ubuntu's or NVIDIA's, is built from source package
+# nvidia-graphics-drivers or nvidia-graphics-drivers-NNN, and every -server
+# binary from nvidia-graphics-drivers-NNN-server, so the src: pattern refuses
+# the whole non-server family, firmware included, and leaves every -server
+# package installable. The two name patterns cover the metapackages, which are
+# built from sources of their own. nvidia-fabricmanager, libnvidia-nscq,
+# libnvidia-egl-wayland1, libnvidia-container*, and nvidia-container-toolkit
+# serve the -server driver under plain names and come from other sources.
+#
+# apt takes the first pin in file order that matches a package. NVIDIA's
+# nvidia-driver-pinning-NNN package installs nvidia-driver-pin, which pins the
+# non-server source at 1000; the 00- prefix sorts this file ahead of it.
+#
+# A host moving to the non-server driver removes this file first.
+# Deployed by scripts/nvidia-deploy.sh; nvidia-gpu-verify checks that apt
+# honours it.
+Package: src:/^nvidia-graphics-drivers(-[0-9]+)?$/ /^nvidia-open(-[0-9]+)?$/ /^cuda-drivers(-[0-9]+)?$/
+Pin: version *
+Pin-Priority: -1

@@ -856,14 +856,15 @@ Units that change another repository name it as the target repo; their paths are
 - **Files:**
   - Create `config/systemd/system/nvidia-persistenced.service.d/override.conf`.
   - Create `config/apt/apt.conf.d/52unattended-upgrades-nvidia`.
-  - Create `scripts/nvidia-deploy.sh` and `tests/nvidia-deploy.bats`.
+  - Extend `scripts/nvidia-deploy.sh` and `tests/nvidia-deploy.bats`, which already copy `config/apt/preferences.d/`
+    to `/etc/apt/preferences.d/` (the NVIDIA `-server` guard), with `--check` and `--dest DIR` modes.
   - Modify `docs/runbooks/headless-gpu-server-nvidia-driver.md` and `AGENTS.md` (System-Level Units).
 - **Approach:**
   1. The drop-in resets `ExecStart=` and runs the daemon with `--persistence-mode`.
   2. The apt file adds NVIDIA package patterns to `Unattended-Upgrade::Package-Blacklist`.
-  3. The deploy script follows the existing deploy scripts: root gate, copy, `daemon-reload`, restart
-     `nvidia-persistenced` (static, so never enable), then confirm persistence reads Enabled. A `--render` mode prints
-     both files without root for tests.
+  3. The deploy script keeps its root gate and preferences copy, and adds the apt file's copy, `daemon-reload`, a restart
+     of `nvidia-persistenced` (static, so never enable), then a check that persistence reads Enabled. A `--render` mode
+     prints both files without root for tests.
   4. The runbook replaces the "Disabled is expected" note with present truth and adds the deliberate upgrade procedure:
      upgrade, reboot, verify.
   5. Before closing, confirm what `needrestart` does to GPU services during a deliberate upgrade, and record the answer
