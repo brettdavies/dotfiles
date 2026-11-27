@@ -142,10 +142,13 @@ branch; the runbook's simulation step catches those. A host moving to the non-se
 
 `scripts/nvidia-deploy.sh` copies every file in the directory to `/etc/apt/preferences.d/` as root; `--check` compares
 without root, and `--dest DIR` is the test seam. Whether apt honours the copy is a resolution question:
-`nvidia-gpu-verify` (`stow/local/dot-local/bin/`) asks `apt-cache policy`, and also checks the five add-on packages at
-the loaded module's version, NVENC, NVDEC, and Vulkan. `tests/nvidia-deploy.bats` resolves the guard with real apt
-against a sandbox repository of stub packages; `tests/nvidia-gpu-verify.bats` stubs `dpkg-query`, `apt-cache`,
-`vulkaninfo`, `python3`, and `timeout`. Runbook: `docs/runbooks/headless-gpu-server-nvidia-driver.md`.
+`nvidia-gpu-verify` (`stow/local/dot-local/bin/`) asks `apt-cache policy`, and runs `--check` for the copy itself. It
+also checks the installed packages against the loaded module: the five add-ons and every other package of a `-server`
+driver source at its branch and version, and no installed package matching the guard's `src:` patterns, which it reads
+from the repo's guard. It checks that DKMS built the module for every kernel in `/boot`, and NVENC, NVDEC, and Vulkan.
+`tests/nvidia-deploy.bats` resolves the guard with real apt against a sandbox repository of stub packages;
+`tests/nvidia-gpu-verify.bats` stubs `dpkg-query`, `apt-cache`, `vulkaninfo`, `python3`, `timeout`, and `dkms`.
+Runbook: `docs/runbooks/headless-gpu-server-nvidia-driver.md`.
 
 ### SSH Daemon Locale (`scripts/sshd-locale-deploy.sh`)
 

@@ -15,23 +15,34 @@
 #   2. nvidia-utils, libnvidia-compute, libnvidia-gl, libnvidia-encode, and
 #      libnvidia-decode are installed as -<branch>-server at the module's
 #      version
-#   3. NVENC: NvEncodeAPIGetMaxSupportedVersion answers, and the API version
+#   3. every other installed package built from a -server driver source is of
+#      the loaded branch at the module's version
+#   4. no package the apt guard refuses is installed: the guard's src:
+#      patterns are matched against each NVIDIA package's source and name
+#   5. DKMS has built the installed nvidia-dkms package's module for every
+#      kernel in /boot, so a boot into any of them has a GPU
+#   6. NVENC: NvEncodeAPIGetMaxSupportedVersion answers, and the API version
 #      it prints decides which ffmpeg builds can encode
-#   4. NVDEC: cuvidGetDecoderCaps answers for H.264, HEVC, and AV1
-#   5. Vulkan: vulkaninfo lists the NVIDIA device at the module's version
-#   6. apt guard: apt offers no candidate for the non-server encode library
+#   7. NVDEC: cuvidGetDecoderCaps answers for H.264, HEVC, and AV1
+#   8. Vulkan: vulkaninfo lists the NVIDIA device at the module's version
+#   9. apt guard: /etc/apt/preferences.d holds the repo's copy byte for byte
+#      (scripts/nvidia-deploy.sh --check), and apt offers no candidate for the
+#      non-server encode library
 #
-# Steps 3 and 4 open no encode or decode session, so they never take one of a
-# GeForce card's capped NVENC sessions from an encode that is running. Steps 3
-# to 5 run under a 30 s timeout, because cuInit and vulkaninfo can hang on a
+# Steps 6 and 7 open no encode or decode session, so they never take one of a
+# GeForce card's capped NVENC sessions from an encode that is running. Steps 6
+# to 8 run under a 30 s timeout, because cuInit and vulkaninfo can hang on a
 # GPU wedged after an Xid error.
 #
 # Exit 0 when nothing failed, and on macOS or a Linux host with no NVIDIA
 # driver; 1 when a check failed; 2 on a usage error.
 #
 # Env: NVIDIA_GPU_VERIFY_PROC_VERSION  file naming the loaded module (default
-#      /proc/driver/nvidia/version). tests/nvidia-gpu-verify.bats points it at
-#      a fixture.
+#                                      /proc/driver/nvidia/version)
+#      NVIDIA_GPU_VERIFY_BOOT_DIR      where the kernels are (default /boot)
+#      NVIDIA_GPU_VERIFY_DKMS          the dkms binary (default /usr/sbin/dkms)
+#      NVIDIA_DEPLOY_PREFERENCES_DIR   read by scripts/nvidia-deploy.sh --check
+#      tests/nvidia-gpu-verify.bats points each at a fixture.
 set -uo pipefail
 
 PROG=nvidia-gpu-verify
@@ -40,6 +51,8 @@ DEPLOY_CMD='sudo ~/dotfiles/scripts/nvidia-deploy.sh'
 # dkms status and ldconfig -p need no root, and their full paths reach them
 # from a PATH without /usr/sbin or /sbin, as an agent slot's is.
 DKMS_CMD='/usr/sbin/dkms status nvidia'
+DKMS_BIN="${NVIDIA_GPU_VERIFY_DKMS:-/usr/sbin/dkms}"
+BOOT_DIR="${NVIDIA_GPU_VERIFY_BOOT_DIR:-/boot}"
 TIMEOUT_S=30
 ADDONS=(nvidia-utils libnvidia-compute libnvidia-gl libnvidia-encode libnvidia-decode)
 
@@ -247,6 +260,136 @@ verify_packages() {
   return 0
 }
 
+# Every NVIDIA package dpkg knows, one "<status> <package> <version> <source>"
+# line each. Every binary of the driver sources carries nvidia in its name;
+# NVIDIA's cuda-drivers metapackages do not.
+nvidia_packages() {
+  dpkg-query -W -f='${db:Status-Abbrev} ${Package} ${Version} ${source:Package}\n' '*nvidia*' 'cuda-drivers*' 2>/dev/null
+}
+
+is_addon() {
+  local name
+  for name in "${ADDONS[@]}"; do
+    [ "$1" = "$name-$2-server" ] && return 0
+  done
+  return 1
+}
+
+# Every installed package of a -server driver source beyond the five add-ons
+# belongs to the loaded branch at the loaded version. A firmware package
+# carries its driver version in its name, so an older one is a leftover, as is
+# a package of another branch; removing either touches nothing else. Any other
+# package of this branch at another version means an upgrade stopped partway
+# or awaits a reboot, and DKMS shows which module the next boot loads.
+verify_server_set() {
+  local branch="$1" version="$2" status pkg ver src count=0 before="${#failures[@]}"
+  while read -r status pkg ver src; do
+    [ "$status" = ii ] || continue
+    [[ $src =~ ^nvidia-graphics-drivers-([0-9]+)-server$ ]] || continue
+    if [ "${BASH_REMATCH[1]}" != "$branch" ]; then
+      fail "$pkg $ver is from branch ${BASH_REMATCH[1]}, and the loaded module is branch $branch" "sudo apt-get remove $pkg"
+    elif is_addon "$pkg" "$branch"; then
+      continue
+    elif [ "$(upstream "$ver")" = "$version" ]; then
+      count=$((count + 1))
+    elif [[ $pkg == "nvidia-firmware-$branch-server-"* ]]; then
+      fail "$pkg is firmware for driver $(upstream "$ver"), and the loaded module is $version" "sudo apt-get remove $pkg"
+    else
+      fail "$pkg is $ver and the loaded module is $version: a reboot is pending, or an upgrade stopped partway" "$DKMS_CMD"
+    fi
+  done <<<"$NV_PKGS"
+  [ "${#failures[@]}" -ne "$before" ] || pass "$count other -$branch-server package(s) at $version"
+}
+
+# The guard's src: patterns, one per line, without their slashes.
+guard_patterns() {
+  local line word
+  local -a words=()
+  line="$(sed -n 's/^Package: src://p' "$GUARD_FILE" 2>/dev/null)"
+  read -ra words <<<"$line"
+  for word in "${words[@]}"; do
+    word="${word#/}"
+    printf '%s\n' "${word%/}"
+  done
+}
+
+# A package the guard refuses can still be installed: from before the guard
+# was deployed, or by dpkg -i. apt's pin may match a pattern against the source
+# or the package name, so both are tested.
+verify_nonserver_absent() {
+  local status pkg ver src re found=0
+  local -a patterns=()
+  while IFS= read -r re; do
+    [ -n "$re" ] && patterns+=("$re")
+  done < <(guard_patterns)
+  if [ "${#patterns[@]}" -eq 0 ]; then
+    fail "no src: pattern in $GUARD_FILE, so non-server packages cannot be told apart" "sed -n '/^Package:/p' $GUARD_FILE"
+    return
+  fi
+  while read -r status pkg ver src; do
+    [ "$status" = ii ] || continue
+    for re in "${patterns[@]}"; do
+      if [[ $src =~ $re || $pkg =~ $re ]]; then
+        fail "$pkg $ver is a non-server driver package (source $src), which conflicts with the -server driver" "sudo apt-get remove $pkg"
+        found=1
+        break
+      fi
+    done
+  done <<<"$NV_PKGS"
+  [ "$found" -eq 1 ] || pass "no package the apt guard refuses is installed"
+}
+
+# The installed nvidia-dkms package's module is the one the next boot loads,
+# so DKMS must have built it for every kernel a boot can pick.
+verify_dkms() {
+  local status pkg ver want="" kernel out rc
+  local -a kernels=() missing=()
+  while read -r status pkg ver _; do
+    if [ "$status" = ii ] && [[ $pkg == nvidia-dkms-* ]]; then
+      want="$(upstream "$ver")"
+      break
+    fi
+  done <<<"$NV_PKGS"
+  if [ -z "$want" ]; then
+    skip "no nvidia-dkms package installed; DKMS builds not checked"
+    return
+  fi
+  out="$("$DKMS_BIN" status nvidia 2>&1)"
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    fail "dkms status exited $rc: $(printf '%s\n' "$out" | awk 'NF { line = $0 } END { print line }')" "$DKMS_CMD"
+    return
+  fi
+  for kernel in "$BOOT_DIR"/vmlinuz-*; do
+    [ -e "$kernel" ] || continue
+    kernel="${kernel##*/vmlinuz-}"
+    kernels+=("$kernel")
+    printf '%s\n' "$out" | awk -F', ' -v m="nvidia/$want" -v k="$kernel" \
+      '$1 == m && $2 == k && $3 ~ /: installed/ { found = 1 } END { exit !found }' || missing+=("$kernel")
+  done
+  if [ "${#kernels[@]}" -eq 0 ]; then
+    fail "no kernel in $BOOT_DIR, so DKMS builds cannot be checked" "ls $BOOT_DIR"
+    return
+  fi
+  for kernel in "${missing[@]}"; do
+    fail "DKMS has not built nvidia $want for kernel $kernel, so a boot into it comes up with no GPU" \
+      "sudo dkms install nvidia/$want -k $kernel"
+  done
+  [ "${#missing[@]}" -ne 0 ] || pass "DKMS has built nvidia $want for every kernel: ${kernels[*]}"
+}
+
+# scripts/nvidia-deploy.sh --check holds the one comparison of the deployed
+# guard with the repo's copy.
+verify_guard_deployed() {
+  local out reason
+  if out="$("$REPO_DIR/scripts/nvidia-deploy.sh" --check 2>&1)"; then
+    pass "the apt guard in ${NVIDIA_DEPLOY_PREFERENCES_DIR:-/etc/apt/preferences.d} matches the repo's copy"
+    return
+  fi
+  reason="$(printf '%s\n' "$out" | sed -n 's/^FATAL: //p' | head -n 1)"
+  fail "${reason:-scripts/nvidia-deploy.sh --check failed: $(printf '%s\n' "$out" | tail -n 1)}" "$DEPLOY_CMD"
+}
+
 # The probe's answer for one engine, or its last line of output when it gave
 # none (a traceback, for one), so every FAIL stays one line.
 probe_failure() {
@@ -354,7 +497,7 @@ verify_guard() {
 }
 
 verify_linux() {
-  local branch version
+  local branch version matched=1
   if [ ! -r "$PROC_VERSION" ]; then
     if dpkg-query -W -f='${db:Status-Abbrev}\n' 'nvidia-kernel-common-*-server' 2>/dev/null | grep -q '^ii'; then
       fail "the NVIDIA driver is installed but its kernel module is not loaded" "$DKMS_CMD"
@@ -370,8 +513,19 @@ verify_linux() {
   fi
   branch="${version%%.*}"
   pass "kernel module $version loaded (branch $branch)"
+  REPO_DIR="$(cd "$(dirname "$(readlink -f "$0")")/../../../.." && pwd)"
+  GUARD_FILE="$REPO_DIR/config/apt/preferences.d/00-nvidia-server-branch.pref"
+  NV_PKGS="$(nvidia_packages)"
 
   if verify_packages "$branch" "$version"; then
+    verify_server_set "$branch" "$version"
+  else
+    matched=0
+    skip "other -$branch-server packages not checked: the userspace does not match the loaded module"
+  fi
+  verify_nonserver_absent
+  verify_dkms
+  if [ "$matched" -eq 1 ]; then
     verify_probes "$branch"
     verify_vulkan "$version"
   else
@@ -379,6 +533,7 @@ verify_linux() {
     skip "NVDEC not probed: the userspace does not match the loaded module"
     skip "Vulkan not checked: the userspace does not match the loaded module"
   fi
+  verify_guard_deployed
   verify_guard "$branch"
   finish
 }

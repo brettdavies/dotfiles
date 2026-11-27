@@ -1,15 +1,18 @@
 #!/usr/bin/env bats
 # run-tests: parallel
 # Tests for stow/local/dot-local/bin/nvidia-gpu-verify, which checks that the
-# NVIDIA -server userspace matches the loaded kernel module and that NVENC,
-# NVDEC, Vulkan, and the apt guard answer.
+# NVIDIA -server userspace matches the loaded kernel module, that no non-server
+# driver package is installed, that DKMS built the module for every kernel, and
+# that NVENC, NVDEC, Vulkan, and the apt guard answer.
 #
-# dpkg-query, apt-cache, vulkaninfo, python3, and timeout are stubs that answer
-# from files under $FIXTURE, so a test writes only the answer it is about. The
-# python3 stub runs the real interpreter when the test writes no canned probe
-# answer, and the timeout stub runs its command unless the test asks it to
-# time out. The loaded module comes from a fixture file through
-# NVIDIA_GPU_VERIFY_PROC_VERSION.
+# dpkg-query, apt-cache, vulkaninfo, python3, timeout, and dkms are stubs that
+# answer from files under $FIXTURE, so a test writes only the answer it is
+# about. The python3 stub runs the real interpreter when the test writes no
+# canned probe answer, and the timeout stub runs its command unless the test
+# asks it to time out. The loaded module comes from a fixture file through
+# NVIDIA_GPU_VERIFY_PROC_VERSION, the kernels from a shared /boot stand-in, and
+# the deployed guard from a shared copy of the repo's, which
+# scripts/nvidia-deploy.sh --check compares for real.
 #
 # Run: bats tests/nvidia-gpu-verify.bats
 
@@ -18,6 +21,8 @@ load lib/platform
 CHECK="$BATS_TEST_DIRNAME/../stow/local/dot-local/bin/nvidia-gpu-verify"
 ADDONS=(nvidia-utils libnvidia-compute libnvidia-gl libnvidia-encode libnvidia-decode)
 DKMS_NEXT="next: /usr/sbin/dkms status nvidia"
+GUARD_NAME=00-nvidia-server-branch.pref
+KERNELS=(6.8.0-146-generic 6.8.0-151-generic)
 
 setup_file() {
   local stubs="$BATS_FILE_TMPDIR/stubs"
@@ -28,15 +33,18 @@ setup_file() {
   cat >"$stubs/dpkg-query" <<'EOF'
 #!/bin/sh
 # dpkg-query -W -f=FORMAT PATTERN..., answered from $FIXTURE/dpkg
-# ("<package> <version>"), with dpkg's three-character status "ii ".
+# ("<package> <version> [<source>]"), with dpkg's three-character status "ii ".
+# A line without a source has the package's own name as its source, as dpkg
+# reports for a package built from a source of the same name.
 format=$2
 shift 2
 found=1
 for pattern in "$@"; do
-  while read -r pkg ver; do
+  while read -r pkg ver src; do
     case $pkg in
       $pattern)
         case $format in
+          *source:Package*) printf 'ii  %s %s %s\n' "$pkg" "$ver" "${src:-$pkg}" ;;
           *Package*) printf 'ii  %s %s\n' "$pkg" "$ver" ;;
           *Version*) printf 'ii  %s\n' "$ver" ;;
           *) printf 'ii \n' ;;
@@ -81,7 +89,17 @@ shift
 [ -f "$FIXTURE/timeout-$1" ] && exit 124
 exec "$@"
 EOF
-  chmod 555 "$stubs/dpkg-query" "$stubs/apt-cache" "$stubs/vulkaninfo" "$stubs/python3" "$stubs/timeout"
+  cat >"$stubs/dkms" <<'EOF'
+#!/bin/sh
+# dkms status nvidia, answered from $FIXTURE/dkms.
+[ ! -f "$FIXTURE/dkms" ] || cat "$FIXTURE/dkms"
+EOF
+  chmod 555 "$stubs/dpkg-query" "$stubs/apt-cache" "$stubs/vulkaninfo" "$stubs/python3" "$stubs/timeout" "$stubs/dkms"
+
+  mkdir -p "$BATS_FILE_TMPDIR/boot" "$BATS_FILE_TMPDIR/prefs"
+  : >"$BATS_FILE_TMPDIR/boot/vmlinuz-6.8.0-146-generic"
+  : >"$BATS_FILE_TMPDIR/boot/vmlinuz-6.8.0-151-generic"
+  cp "$BATS_TEST_DIRNAME/../config/apt/preferences.d/$GUARD_NAME" "$BATS_FILE_TMPDIR/prefs/"
 }
 
 setup() {
@@ -90,6 +108,9 @@ setup() {
   : >"$FIXTURE/dpkg"
   : >"$FIXTURE/apt"
   export NVIDIA_GPU_VERIFY_PROC_VERSION="$FIXTURE/version"
+  export NVIDIA_GPU_VERIFY_BOOT_DIR="$BATS_FILE_TMPDIR/boot"
+  export NVIDIA_GPU_VERIFY_DKMS="$BATS_FILE_TMPDIR/stubs/dkms"
+  export NVIDIA_DEPLOY_PREFERENCES_DIR="$BATS_FILE_TMPDIR/prefs"
   export STUB_UNAME=Linux
   PATH="$BATS_FILE_TMPDIR/stubs:$PATH"
 }
@@ -100,14 +121,26 @@ loaded_module() {
 }
 
 # installed <branch> <debian version> [package...]: dpkg holds the kernel
-# common package and each named add-on (all five by default) at that version.
+# common package and each named add-on (all five by default) at that version,
+# each built from the branch's -server driver source.
 installed() {
   local branch="$1" ver="$2" name
   shift 2
   [ "$#" -gt 0 ] || set -- "${ADDONS[@]}"
-  printf 'nvidia-kernel-common-%s-server %s\n' "$branch" "$ver" >>"$FIXTURE/dpkg"
-  for name in "$@"; do
-    printf '%s-%s-server %s\n' "$name" "$branch" "$ver" >>"$FIXTURE/dpkg"
+  for name in nvidia-kernel-common "$@"; do
+    printf '%s-%s-server %s nvidia-graphics-drivers-%s-server\n' "$name" "$branch" "$ver" "$branch" >>"$FIXTURE/dpkg"
+  done
+}
+
+# dkms_built <version> [kernel...]: dkms status lists the module as installed
+# for each kernel (both in the /boot stand-in by default).
+dkms_built() {
+  local ver="$1" kernel
+  shift
+  [ "$#" -gt 0 ] || set -- "${KERNELS[@]}"
+  : >"$FIXTURE/dkms"
+  for kernel in "$@"; do
+    printf 'nvidia/%s, %s, x86_64: installed\n' "$ver" "$kernel" >>"$FIXTURE/dkms"
   done
 }
 
@@ -126,6 +159,8 @@ healthy() {
   local branch="${1%%.*}"
   loaded_module "$1"
   installed "$branch" "$2"
+  printf 'nvidia-dkms-%s-server-open %s nvidia-graphics-drivers-%s-server\n' "$branch" "$2" "$branch" >>"$FIXTURE/dpkg"
+  dkms_built "${2%%-*}"
   printf 'nvenc ok 13.0\nnvdec ok h264=yes/4096 hevc=yes/8192 av1=yes/8192\n' >"$FIXTURE/probe"
   vulkan_devices "NVIDIA:$1" "llvmpipe:Mesa 25.2.8"
   printf 'libnvidia-encode-%s (none)\nlibnvidia-encode (none)\n' "$branch" >"$FIXTURE/apt"
@@ -156,6 +191,10 @@ assert_userspace_mismatch() {
   [[ "$output" == *"PASS  NVENC answers: API 13.0"* ]]
   [[ "$output" == *"PASS  NVDEC answers: h264=yes/4096 hevc=yes/8192 av1=yes/8192"* ]]
   [[ "$output" == *"PASS  Vulkan lists the NVIDIA device at 580.178.04"* ]]
+  [[ "$output" == *"PASS  2 other -580-server package(s) at 580.178.04"* ]]
+  [[ "$output" == *"PASS  no package the apt guard refuses is installed"* ]]
+  [[ "$output" == *"PASS  DKMS has built nvidia 580.178.04 for every kernel: ${KERNELS[*]}"* ]]
+  [[ "$output" == *"PASS  the apt guard in $NVIDIA_DEPLOY_PREFERENCES_DIR matches the repo's copy"* ]]
   [[ "$output" == *"PASS  apt guard in effect"* ]]
   [[ "$output" == *"nvidia-gpu-verify: all checks passed"* ]]
   [[ "$output" != *FAIL* ]]
@@ -183,6 +222,8 @@ assert_userspace_mismatch() {
   healthy 580.178.04 580.196.07-0ubuntu0.24.04.1
   run "$CHECK"
   assert_userspace_mismatch 580.196.07
+  [[ "$output" == *"SKIP  other -580-server packages not checked"* ]]
+  [[ "$output" == *"PASS  DKMS has built nvidia 580.196.07 for every kernel"* ]]
 }
 
 @test "a partial upgrade with encode and decode missing fails once, with no install line" {
@@ -209,6 +250,79 @@ assert_userspace_mismatch() {
   [ "$status" -eq 1 ]
   [[ "$output" == *"FAIL  libnvidia-encode-580-server is 580.126.20-0ubuntu0.24.04.2 and the loaded module is 580.178.04"* ]]
   [[ "$output" == *'apt-get install "libnvidia-encode-580-server=580.178.04-0ubuntu0.24.04.1"'* ]]
+}
+
+@test "a -server package of another branch, or older firmware, fails with a remove line each" {
+  healthy 580.178.04 580.178.04-0ubuntu0.24.04.1
+  printf '%s\n' \
+    'nvidia-utils-570-server 570.211.01-0ubuntu1.24.04.1 nvidia-graphics-drivers-570-server' \
+    'nvidia-firmware-580-server-580.126.20 580.126.20-0ubuntu0.24.04.2 nvidia-graphics-drivers-580-server' \
+    >>"$FIXTURE/dpkg"
+  run "$CHECK"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAIL  nvidia-utils-570-server 570.211.01-0ubuntu1.24.04.1 is from branch 570, and the loaded module is branch 580"$'\n'"      next: sudo apt-get remove nvidia-utils-570-server"* ]]
+  [[ "$output" == *"FAIL  nvidia-firmware-580-server-580.126.20 is firmware for driver 580.126.20, and the loaded module is 580.178.04"$'\n'"      next: sudo apt-get remove nvidia-firmware-580-server-580.126.20"* ]]
+  [[ "$output" == *"nvidia-gpu-verify: 2 check(s) failed"* ]]
+}
+
+@test "a -server package of the loaded branch at another version fails pointing at DKMS, with no install line" {
+  healthy 580.178.04 580.178.04-0ubuntu0.24.04.1
+  printf 'nvidia-compute-utils-580-server 580.196.07-0ubuntu0.24.04.1 nvidia-graphics-drivers-580-server\n' >>"$FIXTURE/dpkg"
+  run "$CHECK"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAIL  nvidia-compute-utils-580-server is 580.196.07-0ubuntu0.24.04.1 and the loaded module is 580.178.04: a reboot is pending, or an upgrade stopped partway"$'\n'"      $DKMS_NEXT"* ]]
+  [[ "$output" != *"apt-get install"* ]]
+  [[ "$output" == *"nvidia-gpu-verify: 1 check(s) failed"* ]]
+}
+
+@test "an installed package the guard refuses fails naming its source; NVIDIA packages it allows pass" {
+  healthy 580.178.04 580.178.04-0ubuntu0.24.04.1
+  printf '%s\n' \
+    'libnvidia-encode-580 580.196.11-1ubuntu1 nvidia-graphics-drivers-580' \
+    'nvidia-open-580 580.196.11-1 nvidia-open' \
+    'cuda-drivers 620.70.10-1 cuda-drivers' \
+    'nvidia-fabricmanager-580 580.178.04-1 fabric-manager-580' \
+    'libnvidia-egl-wayland1 1:1.1.21-1ubuntu1 egl-wayland' \
+    'libnvidia-container1 1.20.1-1 libnvidia-container' \
+    >>"$FIXTURE/dpkg"
+  run "$CHECK"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAIL  libnvidia-encode-580 580.196.11-1ubuntu1 is a non-server driver package (source nvidia-graphics-drivers-580), which conflicts with the -server driver"$'\n'"      next: sudo apt-get remove libnvidia-encode-580"* ]]
+  [[ "$output" == *"FAIL  nvidia-open-580 580.196.11-1 is a non-server driver package (source nvidia-open)"* ]]
+  [[ "$output" == *"FAIL  cuda-drivers 620.70.10-1 is a non-server driver package (source cuda-drivers)"* ]]
+  [[ "$output" == *"nvidia-gpu-verify: 3 check(s) failed"* ]]
+}
+
+@test "a guard missing from, or different in, the preferences directory fails naming the deploy" {
+  healthy 580.178.04 580.178.04-0ubuntu0.24.04.1
+  export NVIDIA_DEPLOY_PREFERENCES_DIR="$BATS_TEST_TMPDIR/prefs"
+  mkdir -p "$NVIDIA_DEPLOY_PREFERENCES_DIR"
+  run "$CHECK"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAIL  $NVIDIA_DEPLOY_PREFERENCES_DIR/$GUARD_NAME is not deployed"$'\n'"      next: sudo ~/dotfiles/scripts/nvidia-deploy.sh"* ]]
+  printf 'Package: *\nPin: version *\nPin-Priority: 500\n' >"$NVIDIA_DEPLOY_PREFERENCES_DIR/$GUARD_NAME"
+  run "$CHECK"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAIL  $NVIDIA_DEPLOY_PREFERENCES_DIR/$GUARD_NAME differs from config/apt/preferences.d/$GUARD_NAME"$'\n'"      next: sudo ~/dotfiles/scripts/nvidia-deploy.sh"* ]]
+}
+
+@test "a kernel without an installed DKMS build fails naming it; no nvidia-dkms package skips" {
+  healthy 580.178.04 580.178.04-0ubuntu0.24.04.1
+  dkms_built 580.178.04 6.8.0-146-generic
+  printf 'nvidia/580.178.04, 6.8.0-151-generic, x86_64: built\n' >>"$FIXTURE/dkms"
+  run "$CHECK"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAIL  DKMS has not built nvidia 580.178.04 for kernel 6.8.0-151-generic, so a boot into it comes up with no GPU"$'\n'"      next: sudo dkms install nvidia/580.178.04 -k 6.8.0-151-generic"* ]]
+  [[ "$output" != *"for kernel 6.8.0-146-generic"* ]]
+  dkms_built 580.126.20
+  run "$CHECK"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAIL  DKMS has not built nvidia 580.178.04 for kernel 6.8.0-146-generic"* ]]
+  grep -v '^nvidia-dkms-' "$FIXTURE/dpkg" >"$FIXTURE/dpkg.new"
+  cp "$FIXTURE/dpkg.new" "$FIXTURE/dpkg"
+  run "$CHECK"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"SKIP  no nvidia-dkms package installed; DKMS builds not checked"* ]]
 }
 
 @test "an installed driver with no loaded module fails, pointing at DKMS" {

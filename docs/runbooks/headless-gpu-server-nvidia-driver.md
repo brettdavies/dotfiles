@@ -34,17 +34,29 @@ cd ~/dotfiles && scripts/stow-deploy --headless --only local
 nvidia-gpu-verify
 ```
 
-It reads the branch and version from the loaded kernel module, then checks the five add-on packages at that version,
-NVENC and NVDEC through two session-free driver calls, the Vulkan device, and the apt guard. It changes nothing and
-opens no encode or decode session, so it is safe while encodes run. A healthy run on 580 (abridged):
+It reads the branch and version from the loaded kernel module, then checks:
+
+- the five add-on packages at that version;
+- every other installed package of a `-server` driver source, which must be of the loaded branch at that version;
+- that no package the guard refuses is installed;
+- that DKMS has built the installed `nvidia-dkms` package's module for every kernel in `/boot`;
+- NVENC and NVDEC, through two session-free driver calls, and the Vulkan device;
+- that `/etc/apt/preferences.d` holds the repo's guard byte for byte, and that apt honours it.
+
+It changes nothing and opens no encode or decode session, so it is safe while encodes run. A healthy run on 580
+(abridged):
 
 ```text
 PASS  kernel module 580.178.04 loaded (branch 580)
 PASS  nvidia-utils-580-server 580.178.04-0ubuntu0.24.04.1
 ...
+PASS  9 other -580-server package(s) at 580.178.04
+PASS  no package the apt guard refuses is installed
+PASS  DKMS has built nvidia 580.178.04 for every kernel: 6.8.0-146-generic 6.8.0-151-generic
 PASS  NVENC answers: API 13.0; ffmpeg built against nv-codec-headers 13.0 or older can encode
 PASS  NVDEC answers: h264=yes/4096 hevc=yes/8192 av1=yes/8192 (supported/max width)
 PASS  Vulkan lists the NVIDIA device at 580.178.04
+PASS  the apt guard in /etc/apt/preferences.d matches the repo's copy
 PASS  apt guard in effect: no candidate for libnvidia-encode-580 or libnvidia-encode
 
 nvidia-gpu-verify: all checks passed
@@ -64,6 +76,10 @@ and points at `/usr/sbin/dkms status nvidia`: either a reboot is pending, and DK
 running kernel, or another branch's package replaced this one (see Procedure D), and a reboot would come up with no
 module. When the guard step fails while `~/dotfiles/scripts/nvidia-deploy.sh --check` reports the guard deployed, a
 preferences file that sorts before it overrides it, and `apt-cache policy libnvidia-encode-580` shows the winning pin.
+
+A package of another branch, such as the empty transitional `nvidia-utils-570-server` an old branch leaves behind, or
+a firmware package for an older driver version, fails with its `sudo apt-get remove` line; removing either touches no
+other package.
 
 ---
 
@@ -373,8 +389,8 @@ nvidia-gpu-verify
 ```
 
 Between step 3 and the reboot, `nvidia-gpu-verify` reports that no package of the loaded branch is at the loaded
-version; that is the pending reboot, and step 3's DKMS line shows the new module built. Rollback is this procedure with
-the old branch as `B` and a reboot.
+version; that is the pending reboot, and its DKMS step shows the new module built for every kernel. Rollback is this
+procedure with the old branch as `B` and a reboot.
 
 The guard serves hosts on the `-server` driver only. Moving a host to the non-server family starts with
 `sudo rm /etc/apt/preferences.d/00-nvidia-server-branch.pref`, since the guard refuses every package of that family.
